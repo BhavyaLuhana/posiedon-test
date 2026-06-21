@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+    --color-primary-dark: #042713;
+    --color-primary-light: #FFD900;
+    --color-text-muted: #6B7280;
+
+    --font-inter: 'Inter', sans-serif;
+
+    --animate-fade-up: fadeUp 0.8s ease-out;
+    --animate-fade-right: fadeRight 0.8s ease-out;
+    --animate-fade-left: fadeLeft 0.8s ease-out;
+}
+
+@keyframes fadeUp {
+    0% {
+        opacity: 0;
+        transform: translateY(60px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeRight {
+    0% {
+        opacity: 0;
+        transform: translateX(-60px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes fadeLeft {
+    0% {
+        opacity: 0;
+        transform: translateX(60px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@layer base {
+
+    /* Remove custom cursor - use default cursor */
+    * {
+        cursor: auto;
+    }
+
+    body {
+        background-color: #FFFFFF;
+        color: #111111;
+        overflow-x: hidden;
+    }
+}
+
+@layer components {
+    .container-custom {
+        max-width: 1400px;
+        margin-left: auto;
+        margin-right: auto;
+        padding-left: 5%;
+        padding-right: 5%;
+        width: 100%;
+    }
+
+    .section-pad {
+        padding-top: 100px;
+        padding-bottom: 100px;
+    }
+}
+
+@layer utilities {
+    .bg-grid-pattern {
+        background-image: linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+        background-size: 100px 100px;
+    }
+}
+
+@keyframes fadeUp {
+    0% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-up {
+    animation: fadeUp 0.2s ease-out;
+}
+
+/* Custom responsive breakpoints */
+@layer utilities {
+    @media (min-width: 480px) {
+        .xs\:inline {
+            display: inline;
+        }
+    }
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Better touch targets on mobile */
+@media (max-width: 768px) {
+
+    button,
+    a,
+    [role="button"] {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
