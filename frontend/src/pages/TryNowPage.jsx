@@ -133,8 +133,8 @@ const TryNowPage = () => {
           fixedIncomeAndCash: parseFloat(formData.assets.fixedIncomeAndCash) || 0
         }
       };
-
-      const response = await axios.post('http://localhost:5000/api/clients/submit', submitData);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const response = await axios.post(`${API_URL}/api/clients/submit`, submitData);
       
       if (response.data.success) {
         setSubmitted(true);
