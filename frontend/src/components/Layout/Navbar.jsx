@@ -52,9 +52,8 @@ const Navbar = () => {
       hasDropdown: true,
       dropdownType: 'retail',
       items: [
-        { name: 'Plan | Fees | Work', path: '/retail/plan-fees' },
         { name: 'Features', path: '/retail/features' },
-        { name: 'Request Consulting', path: '/retail/consulting' }
+        { name: 'Fees', path: '/retail/plan-fees' },
       ]
     },
     { 
@@ -62,12 +61,11 @@ const Navbar = () => {
       hasDropdown: true,
       dropdownType: 'corporate',
       items: [
-        { name: '2 Plans with Fees', path: '/corporate/plans' },
-        { name: 'Structure', path: '/corporate/structure' }
+        { name: 'Structure', path: '/corporate/structure' },
+        { name: 'Fees', path: '/corporate/plans' }
       ]
     },
     { name: 'Testimonial', path: '/testimonial' },
-    { name: 'Contact Us', path: '/contact' },
     { 
       name: isAdmin ? 'Dashboard' : 'Admin Login', 
       path: isAdmin ? '/dashboard' : '/admin-login' 
@@ -146,7 +144,7 @@ const Navbar = () => {
             to="/try-now"
             className="bg-primary-light text-primary-dark font-bold px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-primary-light/30 ml-2 whitespace-nowrap"
           >
-            🚀 Try Now
+            Contact Us
           </Link>
         </div>
 

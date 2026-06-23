@@ -19,12 +19,14 @@ const AdminDashboard = () => {
 
   const fetchClients = async () => {
     try {
-      const data = await getAllClients();
-      setClients(data);
+      // getAllClients() returns the full envelope { success, data }
+      // — the array of clients is in .data, not the response itself.
+      const response = await getAllClients();
+      setClients(response.data || []);
     } catch (error) {
       console.error('Error fetching clients:', error);
       if (error.response?.status === 401) {
-        navigate('/login');
+        navigate('/admin-login');
       }
     } finally {
       setLoading(false);
@@ -35,7 +37,8 @@ const AdminDashboard = () => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
       try {
         await deleteClient(id);
-        setClients(clients.filter(client => client._id !== id));
+        // backend uses "id", not "_id"
+        setClients(clients.filter(client => client.id !== id));
       } catch (error) {
         console.error('Error deleting client:', error);
       }
@@ -51,16 +54,23 @@ const AdminDashboard = () => {
   };
 
   const filteredClients = clients.filter(client => {
-    const matchesSearch = client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          client.panCard.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterType === 'all' || client.userType === filterType;
+    const matchesSearch =
+      (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (client.panCardNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    // clientType is stored as "Retail" / "Corporate" (capitalized) in the DB,
+    // while the filter dropdown uses lowercase values — normalize before comparing.
+    const matchesFilter =
+      filterType === 'all' ||
+      (client.clientType || '').toLowerCase() === filterType;
+
     return matchesSearch && matchesFilter;
   });
 
   const stats = {
     total: clients.length,
-    retail: clients.filter(c => c.userType === 'retail').length,
-    corporate: clients.filter(c => c.userType === 'corporate').length
+    retail: clients.filter(c => (c.clientType || '').toLowerCase() === 'retail').length,
+    corporate: clients.filter(c => (c.clientType || '').toLowerCase() === 'corporate').length
   };
 
   if (loading) {
@@ -99,7 +109,10 @@ const AdminDashboard = () => {
                 + Add Client
               </button>
               <button
-                onClick={logout}
+                onClick={async () => {
+                  await logout();
+                  navigate('/admin-login');
+                }}
                 className="px-6 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
               >
                 Logout
@@ -163,37 +176,32 @@ const AdminDashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredClients.map((client) => (
                   <div
-                    key={client._id}
+                    key={client.id}
                     className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow cursor-pointer"
-                    onClick={() => navigate(`/client/${client._id}`)}
+                    onClick={() => navigate(`/client/${client.id}`)}
                   >
                     <div className="p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
-                            {client.photo ? (
-                              <img src={client.photo} alt={client.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-xl text-gray-400">
-                                👤
-                              </div>
-                            )}
+                          {/* No photo field exists in the schema — always show the placeholder avatar */}
+                          <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center text-xl text-gray-400">
+                            👤
                           </div>
                           <div>
                             <h3 className="font-bold text-primary-dark">{client.name}</h3>
                             <span className={`text-xs px-2 py-1 rounded-full ${
-                              client.userType === 'retail'
+                              client.clientType === 'Retail'
                                 ? 'bg-blue-100 text-blue-800'
                                 : 'bg-purple-100 text-purple-800'
                             }`}>
-                              {client.userType}
+                              {client.clientType}
                             </span>
                           </div>
                         </div>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDelete(client._id, client.name);
+                            handleDelete(client.id, client.name);
                           }}
                           className="text-red-500 hover:text-red-700 transition-colors"
                         >
@@ -203,12 +211,17 @@ const AdminDashboard = () => {
                         </button>
                       </div>
                       <div className="space-y-2 text-sm">
-                        <p><span className="text-gray-500">PAN:</span> {client.panCard}</p>
-                        <p><span className="text-gray-500">Investment:</span> ₹{client.investmentAmount || 'N/A'}</p>
-                        <p><span className="text-gray-500">Annual Income:</span> ₹{client.annualIncome || 'N/A'}</p>
+                        <p><span className="text-gray-500">PAN:</span> {client.panCardNumber}</p>
+                        <p><span className="text-gray-500">Investment:</span> ₹{client.investmentAmount ?? 'N/A'}</p>
+                        <p><span className="text-gray-500">Annual Income:</span> ₹{client.annualIncome ?? 'N/A'}</p>
                       </div>
                       <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-xs text-gray-500">
-                        <span>Client since {new Date(client.createdAt).toLocaleDateString()}</span>
+                        <span>
+                          Submitted{' '}
+                          {client.submittedAt
+                            ? new Date(client.submittedAt).toLocaleDateString()
+                            : 'N/A'}
+                        </span>
                         <span className="text-primary-dark font-medium">Click to view →</span>
                       </div>
                     </div>

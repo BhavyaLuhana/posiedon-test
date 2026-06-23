@@ -1,5 +1,6 @@
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
 import Navbar from './components/Layout/Navbar'
 import Footer from './components/Layout/Footer'
 import HomePage from './pages/HomePage'
@@ -16,78 +17,80 @@ import ClientOnboarding from './pages/ClientOnboarding'
 import AdminDashboard from './pages/AdminDashboard'
 import ClientDetail from './pages/ClientDetail'
 import TryNowPage from './pages/TryNowPage'
-import AdminLogin from './pages/AdminLogin'  // Add this import
-import ProtectedRoute from './components/ProtectedRoute'  // Add this import
+import AdminLogin from './pages/AdminLogin'
+import ProtectedRoute from './components/ProtectedRoute'
 import { Toaster } from 'react-hot-toast'
 
 function App() {
   return (
-    <Router>
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 5000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
+    <AuthProvider>
+      <Router>
+        <Toaster
+          position="top-right"
+          toastOptions={{
             duration: 5000,
-            iconTheme: {
-              primary: '#8BC34A',
-              secondary: '#fff',
+            style: {
+              background: '#363636',
+              color: '#fff',
             },
-          },
-          error: {
-            duration: 5000,
-            iconTheme: {
-              primary: '#EF4444',
-              secondary: '#fff',
+            success: {
+              duration: 5000,
+              iconTheme: {
+                primary: '#8BC34A',
+                secondary: '#fff',
+              },
             },
-          },
-        }}
-      />
-      <div className="flex flex-col min-h-screen">
-        <Navbar />
-        <main className="flex-grow">
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<HomePage />} />
-            <Route path="/about" element={<AboutUs />} />
-            <Route path="/retail/plan-fees" element={<RetailPlanFees />} />
-            <Route path="/retail/features" element={<RetailFeatures />} />
-            <Route path="/retail/consulting" element={<RetailConsulting />} />
-            <Route path="/corporate/plans" element={<CorporatePlans />} />
-            <Route path="/corporate/structure" element={<CorporateStructure />} />
-            <Route path="/testimonial" element={<TestimonialPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/onboard" element={<ClientOnboarding />} />
-            <Route path="/try-now" element={<TryNowPage />} />
-            
-            {/* Admin Routes */}
-            <Route path="/admin-login" element={<AdminLogin />} />
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/client/:id" 
-              element={
-                <ProtectedRoute>
-                  <ClientDetail />
-                </ProtectedRoute>
-              } 
-            />
-          </Routes>
-        </main>
-        <Footer />
-      </div>
-    </Router>
+            error: {
+              duration: 5000,
+              iconTheme: {
+                primary: '#EF4444',
+                secondary: '#fff',
+              },
+            },
+          }}
+        />
+        <div className="flex flex-col min-h-screen">
+          <Navbar />
+          <main className="flex-grow">
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={<HomePage />} />
+              <Route path="/about" element={<AboutUs />} />
+              <Route path="/retail/plan-fees" element={<RetailPlanFees />} />
+              <Route path="/retail/features" element={<RetailFeatures />} />
+              <Route path="/retail/consulting" element={<RetailConsulting />} />
+              <Route path="/corporate/plans" element={<CorporatePlans />} />
+              <Route path="/corporate/structure" element={<CorporateStructure />} />
+              <Route path="/testimonial" element={<TestimonialPage />} />
+              <Route path="/contact" element={<ContactPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/onboard" element={<ClientOnboarding />} />
+              <Route path="/try-now" element={<TryNowPage />} />
+
+              {/* Admin Routes */}
+              <Route path="/admin-login" element={<AdminLogin />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute adminOnly>
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/:id"
+                element={
+                  <ProtectedRoute adminOnly>
+                    <ClientDetail />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </Router>
+    </AuthProvider>
   )
 }
 

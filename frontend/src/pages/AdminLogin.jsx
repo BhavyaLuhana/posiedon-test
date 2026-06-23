@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
+import axios from 'axios';
 import Navbar from '../components/Layout/Navbar';
 import Footer from '../components/Layout/Footer';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
@@ -24,19 +27,36 @@ const AdminLogin = () => {
     setLoading(true);
 
     try {
-      // For demo - hardcoded credentials
-      // In production, check against database
-      if (credentials.email === 'admin@poseidon.com' && credentials.password === 'admin123') {
-        // Store admin session
-        localStorage.setItem('adminToken', 'admin-session-token');
-        localStorage.setItem('adminEmail', credentials.email);
-        toast.success('Welcome Admin! 🎉');
-        navigate('/dashboard');
-      } else {
-        toast.error('Invalid credentials. Please try again.');
+      // withCredentials is REQUIRED — the backend sets the JWT as an httpOnly
+      // cookie, and axios will not send/receive cookies cross-origin unless
+      // this is explicitly set on every request.
+      const response = await axios.post(
+        `${API_URL}/api/auth/login`,
+        {
+          email: credentials.email,
+          password: credentials.password,
+        },
+        { withCredentials: true }
+      );
+
+      const { user } = response.data;
+
+      if (user.role !== 'admin') {
+        toast.error('This account does not have admin access.');
+        setLoading(false);
+        return;
       }
+
+      // No need to store a token manually — the backend already set
+      // accessToken/refreshToken as httpOnly cookies. We just keep a
+      // small bit of non-sensitive info for UI purposes.
+      localStorage.setItem('adminEmail', user.email);
+
+      toast.success('Welcome Admin! 🎉');
+      navigate('/dashboard');
     } catch (error) {
-      toast.error('Login failed. Please try again.');
+      const message = error.response?.data?.message || 'Login failed. Please try again.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -73,7 +93,7 @@ const AdminLogin = () => {
                   value={credentials.email}
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                  placeholder="admin@poseidon.com"
+                  placeholder="admin@example.com"
                   required
                 />
               </div>

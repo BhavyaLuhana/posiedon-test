@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -10,7 +12,7 @@ const api = axios.create({
   }
 });
 
-// Auth APIs
+// ============ AUTH APIs ============
 export const register = async (userData) => {
   const response = await api.post('/auth/register', userData);
   return response.data;
@@ -31,14 +33,19 @@ export const getCurrentUser = async () => {
   return response.data;
 };
 
-// Client APIs
-export const createClient = async (clientData) => {
-  const response = await api.post('/clients', clientData);
+// ============ CLIENT APIs ============
+// These match the actual routes defined in server.js.
+// (Removed an older duplicate set of client functions that pointed at
+// routes which don't exist on the backend — /clients, /clients/:id PUT,
+// etc. — and were causing 404s.)
+
+export const submitClientForm = async (clientData) => {
+  const response = await api.post('/clients/submit', clientData);
   return response.data;
 };
 
 export const getAllClients = async () => {
-  const response = await api.get('/clients');
+  const response = await api.get('/clients/all');
   return response.data;
 };
 
@@ -47,8 +54,8 @@ export const getClientById = async (id) => {
   return response.data;
 };
 
-export const updateClient = async (id, clientData) => {
-  const response = await api.put(`/clients/${id}`, clientData);
+export const updateClientStatus = async (id, status, notes) => {
+  const response = await api.put(`/clients/${id}/status`, { status, notes });
   return response.data;
 };
 
@@ -57,11 +64,9 @@ export const deleteClient = async (id) => {
   return response.data;
 };
 
-export const clientApi = {
-  submitForm: (data) => api.post('/clients/submit', data),
-  getAllClients: () => api.get('/clients/all'),
-  getClientById: (id) => api.get(`/clients/${id}`),
-  updateStatus: (id, status) => api.put(`/clients/${id}/status`, { status }),
+export const getClientStats = async () => {
+  const response = await api.get('/clients/stats/summary');
+  return response.data;
 };
 
 export default api;
