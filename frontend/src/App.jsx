@@ -18,6 +18,9 @@ import AdminDashboard from './pages/AdminDashboard'
 import ClientDetail from './pages/ClientDetail'
 import TryNowPage from './pages/TryNowPage'
 import AdminLogin from './pages/AdminLogin'
+import AdminSetup from './pages/AdminSetup'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
 import ProtectedRoute from './components/ProtectedRoute'
 import { Toaster } from 'react-hot-toast'
 
@@ -69,6 +72,16 @@ function App() {
 
               {/* Admin Routes */}
               <Route path="/admin-login" element={<AdminLogin />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route
+                path="/admin-setup"
+                element={
+                  <ProtectedRoute adminOnly>
+                    <AdminSetup />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/dashboard"
                 element={

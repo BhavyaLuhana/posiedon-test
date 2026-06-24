@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Layout/Navbar';
 import Footer from '../components/Layout/Footer';
 
@@ -9,6 +10,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
+  const { setUser, setIsAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [credentials, setCredentials] = useState({
     email: '',
@@ -47,13 +49,25 @@ const AdminLogin = () => {
         return;
       }
 
-      // No need to store a token manually — the backend already set
-      // accessToken/refreshToken as httpOnly cookies. We just keep a
-      // small bit of non-sensitive info for UI purposes.
-      localStorage.setItem('adminEmail', user.email);
+      // Update AuthContext immediately — this is the fix for the
+      // "login 3 times" bug. Without this, isAuthenticated stays false
+      // in context until the next full page reload triggers checkAuth(),
+      // so ProtectedRoute bounces you straight back to /admin-login even
+      // though the backend already set a valid session cookie.
+      setUser(user);
+      setIsAuthenticated(true);
 
+      localStorage.setItem('adminEmail', user.email);
       toast.success('Welcome Admin! 🎉');
-      navigate('/dashboard');
+
+      // First-ever login (bootstrap .env credentials, never changed yet):
+      // route to the one-time setup screen instead of the dashboard.
+      // This branch never fires again once setup is completed.
+      if (!user.setupComplete) {
+        navigate('/admin-setup');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (error) {
       const message = error.response?.data?.message || 'Login failed. Please try again.';
       toast.error(message);
@@ -111,6 +125,11 @@ const AdminLogin = () => {
                   placeholder="Enter your password"
                   required
                 />
+                <div className="text-right mt-2">
+                  <Link to="/forgot-password" className="text-xs font-medium text-primary-dark hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
 
               <button

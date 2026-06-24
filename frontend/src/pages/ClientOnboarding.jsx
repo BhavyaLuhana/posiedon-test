@@ -1,70 +1,139 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'react-hot-toast'
 import AnimatedSection from '../components/UI/AnimatedSection'
+import { submitClientForm } from '../services/api'
+
+const educationOptions = ['High School', 'Graduate', 'Post Graduate', 'Doctorate', 'Other']
+const incomeTypeOptions = ['Salary', 'Business', 'Investments', 'Rental', 'Pension', 'Other']
 
 const ClientOnboarding = () => {
   const navigate = useNavigate()
+  const [submitting, setSubmitting] = useState(false)
+
   const [formData, setFormData] = useState({
-    // Personal Details
     name: '',
+    email: '',
+    phone: '',
     age: '',
-    panCard: '',
+    panCardNumber: '',
     aadharNumber: '',
     educationLevel: '',
     professionalQualification: '',
-    
-    // Financial Details
     debtLoanAmount: '',
     investmentAmount: '',
-    incomeType: '',
+    incomeTypes: [],
     annualIncome: '',
     totalNetWorth: '',
-    
-    // Asset Details
-    realEstate: '',
-    equity: '',
-    alternatives: '',
-    fixedIncomeCash: '',
-    
-    // User Type
-    userType: 'retail', // retail or corporate
+    assets: {
+      realEstate: '',
+      equity: '',
+      alternatives: '',
+      fixedIncomeAndCash: '',
+    },
+    clientType: 'Retail',
   })
-
-  const [photo, setPhoto] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  const handlePhotoChange = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      setPhoto(file)
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result)
-      }
-      reader.readAsDataURL(file)
-    }
+  const handleAssetChange = (e) => {
+    setFormData({
+      ...formData,
+      assets: { ...formData.assets, [e.target.name]: e.target.value },
+    })
   }
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    
-    // Save client data to localStorage (for demo purposes)
-    const existingClients = JSON.parse(localStorage.getItem('clients') || '[]')
-    const newClient = {
-      id: Date.now(),
-      ...formData,
-      photo: photoPreview,
-      createdAt: new Date().toISOString()
+  const toggleIncomeType = (type) => {
+    setFormData((prev) => ({
+      ...prev,
+      incomeTypes: prev.incomeTypes.includes(type)
+        ? prev.incomeTypes.filter((t) => t !== type)
+        : [...prev.incomeTypes, type],
+    }))
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: '', email: '', phone: '', age: '',
+      panCardNumber: '', aadharNumber: '',
+      educationLevel: '', professionalQualification: '',
+      debtLoanAmount: '', investmentAmount: '',
+      incomeTypes: [], annualIncome: '', totalNetWorth: '',
+      assets: { realEstate: '', equity: '', alternatives: '', fixedIncomeAndCash: '' },
+      clientType: 'Retail',
+    })
+  }
+
+  const validate = () => {
+    if (!formData.name || !formData.email || !formData.phone || !formData.age ||
+        !formData.panCardNumber || !formData.aadharNumber || !formData.educationLevel ||
+        !formData.investmentAmount || !formData.annualIncome || !formData.totalNetWorth) {
+      toast.error('Please fill in all required fields')
+      return false
     }
-    existingClients.push(newClient)
-    localStorage.setItem('clients', JSON.stringify(existingClients))
-    
-    alert('Client onboarded successfully!')
-    navigate('/dashboard')
+    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/
+    if (!panRegex.test(formData.panCardNumber.toUpperCase())) {
+      toast.error('Please enter a valid PAN card number (e.g., ABCDE1234F)')
+      return false
+    }
+    if (!/^[0-9]{12}$/.test(formData.aadharNumber)) {
+      toast.error('Please enter a valid 12-digit Aadhar number')
+      return false
+    }
+    if (!/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(formData.email)) {
+      toast.error('Please enter a valid email address')
+      return false
+    }
+    if (!/^[0-9]{10}$/.test(formData.phone)) {
+      toast.error('Please enter a valid 10-digit phone number')
+      return false
+    }
+    return true
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!validate()) return
+
+    setSubmitting(true)
+    try {
+      const payload = {
+        ...formData,
+        age: parseInt(formData.age),
+        panCardNumber: formData.panCardNumber.toUpperCase(),
+        debtLoanAmount: parseFloat(formData.debtLoanAmount) || 0,
+        investmentAmount: parseFloat(formData.investmentAmount),
+        annualIncome: parseFloat(formData.annualIncome),
+        totalNetWorth: parseFloat(formData.totalNetWorth),
+        assets: {
+          realEstate: parseFloat(formData.assets.realEstate) || 0,
+          equity: parseFloat(formData.assets.equity) || 0,
+          alternatives: parseFloat(formData.assets.alternatives) || 0,
+          fixedIncomeAndCash: parseFloat(formData.assets.fixedIncomeAndCash) || 0,
+        },
+      }
+
+      const response = await submitClientForm(payload)
+
+      if (response.success) {
+        toast.success('Client onboarded successfully!')
+        resetForm()
+        navigate('/dashboard')
+      }
+    } catch (error) {
+      console.error('Error submitting client:', error)
+      if (error.response?.data?.alreadySubmitted) {
+        toast.error('A client with this PAN, Aadhar, email, or phone already exists.')
+      } else if (error.response?.data?.message) {
+        toast.error(error.response.data.message)
+      } else {
+        toast.error('Failed to onboard client. Please try again.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -88,57 +157,30 @@ const ClientOnboarding = () => {
           <AnimatedSection>
             <div className="bg-white rounded-2xl shadow-xl p-6 md:p-10">
               <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Client Photo */}
-                <div className="flex flex-col items-center">
-                  <div className="relative">
-                    <div className="w-32 h-32 rounded-full border-4 border-primary-light overflow-hidden bg-gray-100 flex items-center justify-center">
-                      {photoPreview ? (
-                        <img src={photoPreview} alt="Client" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-4xl text-gray-400">📸</span>
-                      )}
-                    </div>
-                    <label className="absolute bottom-0 right-0 bg-primary-dark text-white p-2 rounded-full cursor-pointer hover:bg-black transition-colors">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handlePhotoChange}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-2">Upload Client Photo</p>
-                </div>
-
-                {/* User Type Selection */}
                 <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, userType: 'retail' })}
+                    onClick={() => setFormData({ ...formData, clientType: 'Retail' })}
                     className={`p-4 rounded-xl border-2 transition-all ${
-                      formData.userType === 'retail'
+                      formData.clientType === 'Retail'
                         ? 'border-primary-light bg-primary-light/10'
                         : 'border-gray-200 hover:border-primary-light'
                     }`}
                   >
-                    <span className={`font-bold ${formData.userType === 'retail' ? 'text-primary-dark' : 'text-gray-600'}`}>
+                    <span className={`font-bold ${formData.clientType === 'Retail' ? 'text-primary-dark' : 'text-gray-600'}`}>
                       Retail Client
                     </span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, userType: 'corporate' })}
+                    onClick={() => setFormData({ ...formData, clientType: 'Corporate' })}
                     className={`p-4 rounded-xl border-2 transition-all ${
-                      formData.userType === 'corporate'
+                      formData.clientType === 'Corporate'
                         ? 'border-primary-light bg-primary-light/10'
                         : 'border-gray-200 hover:border-primary-light'
                     }`}
                   >
-                    <span className={`font-bold ${formData.userType === 'corporate' ? 'text-primary-dark' : 'text-gray-600'}`}>
+                    <span className={`font-bold ${formData.clientType === 'Corporate' ? 'text-primary-dark' : 'text-gray-600'}`}>
                       Corporate Client
                     </span>
                   </button>
@@ -148,74 +190,54 @@ const ClientOnboarding = () => {
                   <h3 className="text-xl font-bold text-primary-dark mb-6">Personal Details</h3>
                   <div className="grid md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleChange}
-                        required
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
+                      <input type="text" name="name" value={formData.name} onChange={handleChange} required
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="Enter full name"
-                      />
+                        placeholder="Enter full name" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Age</label>
-                      <input
-                        type="number"
-                        name="age"
-                        value={formData.age}
-                        onChange={handleChange}
-                        required
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
+                      <input type="email" name="email" value={formData.email} onChange={handleChange} required
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="Enter age"
-                      />
+                        placeholder="client@email.com" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">PAN Card Number</label>
-                      <input
-                        type="text"
-                        name="panCard"
-                        value={formData.panCard}
-                        onChange={handleChange}
-                        required
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number *</label>
+                      <input type="tel" name="phone" value={formData.phone} onChange={handleChange} required maxLength="10"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="Enter PAN card number"
-                      />
+                        placeholder="9876543210" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Number</label>
-                      <input
-                        type="text"
-                        name="aadharNumber"
-                        value={formData.aadharNumber}
-                        onChange={handleChange}
-                        required
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Age *</label>
+                      <input type="number" name="age" value={formData.age} onChange={handleChange} required min="18" max="100"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="Enter Aadhar number"
-                      />
+                        placeholder="Enter age" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Education Level</label>
-                      <input
-                        type="text"
-                        name="educationLevel"
-                        value={formData.educationLevel}
-                        onChange={handleChange}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">PAN Card Number *</label>
+                      <input type="text" name="panCardNumber" value={formData.panCardNumber} onChange={handleChange} required maxLength="10"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors uppercase"
+                        placeholder="ABCDE1234F" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Number *</label>
+                      <input type="text" name="aadharNumber" value={formData.aadharNumber} onChange={handleChange} required maxLength="12"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="e.g., Graduate, Post Graduate"
-                      />
+                        placeholder="12-digit Aadhar number" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Education Level *</label>
+                      <select name="educationLevel" value={formData.educationLevel} onChange={handleChange} required
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors bg-white">
+                        <option value="">Select education level</option>
+                        {educationOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Professional Qualification</label>
-                      <input
-                        type="text"
-                        name="professionalQualification"
-                        value={formData.professionalQualification}
-                        onChange={handleChange}
+                      <input type="text" name="professionalQualification" value={formData.professionalQualification} onChange={handleChange}
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="e.g., CA, MBA, Engineer"
-                      />
+                        placeholder="e.g., CA, MBA, Engineer" />
                     </div>
                   </div>
                 </div>
@@ -225,58 +247,39 @@ const ClientOnboarding = () => {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Debt/Loan Amount</label>
-                      <input
-                        type="text"
-                        name="debtLoanAmount"
-                        value={formData.debtLoanAmount}
-                        onChange={handleChange}
+                      <input type="number" name="debtLoanAmount" value={formData.debtLoanAmount} onChange={handleChange} min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Amount for Investments</label>
-                      <input
-                        type="text"
-                        name="investmentAmount"
-                        value={formData.investmentAmount}
-                        onChange={handleChange}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Amount for Investments *</label>
+                      <input type="number" name="investmentAmount" value={formData.investmentAmount} onChange={handleChange} required min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Income Type/s</label>
-                      <input
-                        type="text"
-                        name="incomeType"
-                        value={formData.incomeType}
-                        onChange={handleChange}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="e.g., Salary, Business, Rental"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Annual Income</label>
-                      <input
-                        type="text"
-                        name="annualIncome"
-                        value={formData.annualIncome}
-                        onChange={handleChange}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Total Net Worth</label>
-                      <input
-                        type="text"
-                        name="totalNetWorth"
-                        value={formData.totalNetWorth}
-                        onChange={handleChange}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Income Type/s</label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {incomeTypeOptions.map((type) => (
+                          <label key={type} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={formData.incomeTypes.includes(type)} onChange={() => toggleIncomeType(type)}
+                              className="w-4 h-4 text-primary-light rounded" />
+                            <span className="text-sm">{type}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Annual Income *</label>
+                      <input type="number" name="annualIncome" value={formData.annualIncome} onChange={handleChange} required min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Total Net Worth *</label>
+                      <input type="number" name="totalNetWorth" value={formData.totalNetWorth} onChange={handleChange} required min="0"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
+                        placeholder="₹" />
                     </div>
                   </div>
                 </div>
@@ -286,84 +289,38 @@ const ClientOnboarding = () => {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">1. Real Estate</label>
-                      <input
-                        type="text"
-                        name="realEstate"
-                        value={formData.realEstate}
-                        onChange={handleChange}
+                      <input type="number" name="realEstate" value={formData.assets.realEstate} onChange={handleAssetChange} min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">2. Equity</label>
-                      <input
-                        type="text"
-                        name="equity"
-                        value={formData.equity}
-                        onChange={handleChange}
+                      <input type="number" name="equity" value={formData.assets.equity} onChange={handleAssetChange} min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">3. Alternatives</label>
-                      <input
-                        type="text"
-                        name="alternatives"
-                        value={formData.alternatives}
-                        onChange={handleChange}
+                      <input type="number" name="alternatives" value={formData.assets.alternatives} onChange={handleAssetChange} min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">4. Fixed Income and Cash</label>
-                      <input
-                        type="text"
-                        name="fixedIncomeCash"
-                        value={formData.fixedIncomeCash}
-                        onChange={handleChange}
+                      <input type="number" name="fixedIncomeAndCash" value={formData.assets.fixedIncomeAndCash} onChange={handleAssetChange} min="0"
                         className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
-                        placeholder="₹"
-                      />
+                        placeholder="₹" />
                     </div>
                   </div>
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                  <button
-                    type="submit"
-                    className="flex-1 py-3 bg-primary-dark text-white rounded-lg font-semibold hover:bg-black transition-colors"
-                  >
-                    Submit Client Details
+                  <button type="submit" disabled={submitting}
+                    className="flex-1 py-3 bg-primary-dark text-white rounded-lg font-semibold hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {submitting ? 'Submitting...' : 'Submit Client Details'}
                   </button>
-                  <button
-                    type="reset"
-                    onClick={() => {
-                      setFormData({
-                        name: '',
-                        age: '',
-                        panCard: '',
-                        aadharNumber: '',
-                        educationLevel: '',
-                        professionalQualification: '',
-                        debtLoanAmount: '',
-                        investmentAmount: '',
-                        incomeType: '',
-                        annualIncome: '',
-                        totalNetWorth: '',
-                        realEstate: '',
-                        equity: '',
-                        alternatives: '',
-                        fixedIncomeCash: '',
-                        userType: 'retail',
-                      })
-                      setPhoto(null)
-                      setPhotoPreview(null)
-                    }}
-                    className="px-6 py-3 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
-                  >
+                  <button type="button" onClick={resetForm}
+                    className="px-6 py-3 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 transition-colors">
                     Reset
                   </button>
                 </div>

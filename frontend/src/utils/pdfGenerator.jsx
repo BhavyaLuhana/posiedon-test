@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import { autoTable } from 'jspdf-autotable'
 
 export const generateClientPDF = (client) => {
   const doc = new jsPDF('p', 'mm', 'a4')
@@ -50,7 +50,7 @@ export const generateClientPDF = (client) => {
     ['Client Type', client.clientType || 'Retail']
   ]
 
-  doc.autoTable({
+  const table1 = autoTable(doc, {
     startY: 70,
     head: [['Field', 'Value']],
     body: personalData,
@@ -72,7 +72,9 @@ export const generateClientPDF = (client) => {
   })
 
   // Financial Details Section
-  let yPosition = doc.lastAutoTable.finalY + 10
+  // v5: autoTable() returns the table object directly — use its .finalY
+  // instead of the removed doc.lastAutoTable.
+  let yPosition = table1.finalY + 10
 
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
@@ -96,7 +98,7 @@ export const generateClientPDF = (client) => {
     ['Total Net Worth', client.totalNetWorth ?? 'N/A']
   ]
 
-  doc.autoTable({
+  const table2 = autoTable(doc, {
     startY: yPosition + 5,
     head: [['Field', 'Value']],
     body: financialData,
@@ -118,7 +120,7 @@ export const generateClientPDF = (client) => {
   })
 
   // Asset Details Section
-  yPosition = doc.lastAutoTable.finalY + 10
+  yPosition = table2.finalY + 10
 
   doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
@@ -139,7 +141,7 @@ export const generateClientPDF = (client) => {
     ['4. Fixed Income and Cash', assets.fixedIncomeAndCash ?? 'N/A']
   ]
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: yPosition + 5,
     head: [['Asset Type', 'Amount']],
     body: assetData,
@@ -220,7 +222,7 @@ export const generateAllClientsPDF = (clients) => {
     client.annualIncome ?? 'N/A'
   ])
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: 70,
     head: [['Name', 'PAN', 'Type', 'Investment', 'Annual Income']],
     body: tableData,

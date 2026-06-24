@@ -13,6 +13,7 @@ const morgan = require('morgan');
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -62,9 +63,15 @@ const submitLimiter = rateLimit({
   message: 'Too many submissions from this IP, please try again later.',
   standardHeaders: true, legacyHeaders: false,
 });
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 3,
+  message: 'Too many password reset requests. Please try again later.',
+  standardHeaders: true, legacyHeaders: false,
+});
 
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 app.use('/api/clients/submit', submitLimiter);
 app.use(limiter);
 
@@ -124,6 +131,48 @@ function hashForLookup(text) {
   return crypto.createHmac('sha256', ENCRYPTION_KEY_BUFFER).update(text).digest('hex');
 }
 
+// ============ EMAIL SETUP (for password reset) ============
+let mailer = null;
+if (process.env.SMTP_EMAIL && process.env.SMTP_APP_PASSWORD) {
+  mailer = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.SMTP_EMAIL,
+      pass: process.env.SMTP_APP_PASSWORD,
+    },
+  });
+  console.log('✅ Email transporter configured (Gmail SMTP)');
+} else {
+  console.warn('⚠️  SMTP_EMAIL / SMTP_APP_PASSWORD not set — password reset emails will not be sent');
+}
+
+async function sendPasswordResetEmail(toEmail, resetUrl) {
+  if (!mailer) {
+    console.warn('⚠️  Email not configured — reset link would have been:', resetUrl);
+    throw new Error('Email service is not configured on this server.');
+  }
+
+  await mailer.sendMail({
+    from: `"PlanPoseidon" <${process.env.SMTP_EMAIL}>`,
+    to: toEmail,
+    subject: 'Reset your PlanPoseidon admin password',
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2 style="color:#0A1C14;">Password Reset Request</h2>
+        <p>We received a request to reset your PlanPoseidon admin password.</p>
+        <p>Click the button below to choose a new password. This link expires in 30 minutes.</p>
+        <p style="margin: 24px 0;">
+          <a href="${resetUrl}" style="background:#CCFF00;color:#0A1C14;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">
+            Reset Password
+          </a>
+        </p>
+        <p style="color:#666;font-size:13px;">If you didn't request this, you can safely ignore this email — your password will not change.</p>
+        <p style="color:#999;font-size:12px;word-break:break-all;">Or paste this link into your browser: ${resetUrl}</p>
+      </div>
+    `,
+  });
+}
+
 // ============ SQLITE SETUP ============
 const DB_PATH = process.env.SQLITE_PATH || path.join(__dirname, 'planposeidon.db');
 const db = new Database(DB_PATH);
@@ -144,6 +193,9 @@ db.exec(`
     lockUntil TEXT,
     lastLogin TEXT,
     lastLoginIP TEXT,
+    setupComplete INTEGER NOT NULL DEFAULT 0,
+    resetToken TEXT,
+    resetTokenExpiry TEXT,
     createdAt TEXT NOT NULL DEFAULT (datetime('now')),
     updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -250,6 +302,20 @@ const stmts = {
   `),
   clearUserRefreshToken: db.prepare(`
     UPDATE users SET refreshToken = NULL, refreshTokenExpiry = NULL, updatedAt = datetime('now') WHERE id = ?
+  `),
+  completeAdminSetup: db.prepare(`
+    UPDATE users SET email = ?, password = ?, setupComplete = 1, updatedAt = datetime('now')
+    WHERE id = ? AND role = 'admin'
+  `),
+  setResetToken: db.prepare(`
+    UPDATE users SET resetToken = ?, resetTokenExpiry = ?, updatedAt = datetime('now') WHERE id = ?
+  `),
+  findUserByResetToken: db.prepare(`
+    SELECT * FROM users WHERE resetToken = ?
+  `),
+  resetPasswordAndClearToken: db.prepare(`
+    UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiry = NULL,
+      loginAttempts = 0, lockUntil = NULL, updatedAt = datetime('now') WHERE id = ?
   `),
 
   insertClient: db.prepare(`
@@ -433,11 +499,159 @@ app.post('/api/auth/login', async (req, res) => {
 
     res.json({
       message: 'Login successful',
-      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        setupComplete: !!user.setupComplete
+      }
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error during login' });
+  }
+});
+
+// ============ FIRST-LOGIN ADMIN SETUP ============
+// This route is the ONLY way credentials can change without re-supplying
+// the current password — and it only works ONCE per admin account, ever.
+// Once setupComplete flips to 1 in the DB, this route permanently rejects
+// further attempts for that account. There is no way to re-trigger it
+// short of an operator manually resetting the flag in the database.
+app.post('/api/auth/complete-admin-setup', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { newEmail, newPassword } = req.body;
+
+    const user = stmts.findUserById.get(req.user.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.setupComplete) {
+      return res.status(403).json({ message: 'Setup has already been completed for this account.' });
+    }
+
+    if (!newEmail || !newEmail.match(/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one uppercase letter' });
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one number' });
+    }
+    if (!/[!@#$%^&*]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one special character (!@#$%^&*)' });
+    }
+
+    if (newEmail.toLowerCase() !== user.email) {
+      const existing = stmts.findUserByEmail.get(newEmail.toLowerCase());
+      if (existing) return res.status(400).json({ message: 'Email already in use' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    stmts.completeAdminSetup.run(newEmail.toLowerCase(), hashedPassword, user.id);
+
+    // Invalidate current session — admin must log in fresh with new credentials
+    stmts.clearUserRefreshToken.run(user.id);
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken');
+
+    logActivity(user.id, 'COMPLETE_ADMIN_SETUP', { newEmail: newEmail.toLowerCase() }, req);
+
+    res.json({ message: 'Admin credentials updated. Please log in again with your new credentials.' });
+  } catch (error) {
+    console.error('Complete admin setup error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ============ FORGOT PASSWORD ============
+// Always returns the same generic success message regardless of whether
+// the email exists, so this endpoint can't be used to enumerate valid
+// admin/client accounts.
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const genericResponse = {
+    message: 'If an account with that email exists, a password reset link has been sent.'
+  };
+
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+
+    const user = stmts.findUserByEmail.get(email.toLowerCase());
+
+    // Don't reveal whether the account exists — always respond the same way.
+    if (!user || !user.isActive) {
+      return res.json(genericResponse);
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min
+
+    stmts.setResetToken.run(resetToken, resetTokenExpiry, user.id);
+
+    const resetUrl = `${process.env.RESET_PASSWORD_URL_BASE || 'http://localhost:5173/reset-password'}?token=${resetToken}`;
+
+    try {
+      await sendPasswordResetEmail(user.email, resetUrl);
+      logActivity(user.id, 'FORGOT_PASSWORD_REQUEST', { email: user.email }, req);
+    } catch (emailError) {
+      // Email service genuinely not configured / failed to send.
+      // Log it server-side, but still return the generic response —
+      // don't leak that something went wrong to the client.
+      console.error('Failed to send reset email:', emailError.message);
+    }
+
+    res.json(genericResponse);
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ============ RESET PASSWORD ============
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: 'Token and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one uppercase letter' });
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one number' });
+    }
+    if (!/[!@#$%^&*]/.test(newPassword)) {
+      return res.status(400).json({ message: 'Password must contain at least one special character (!@#$%^&*)' });
+    }
+
+    const user = stmts.findUserByResetToken.get(token);
+
+    if (!user || !user.resetTokenExpiry || new Date(user.resetTokenExpiry) < new Date()) {
+      return res.status(400).json({ message: 'This reset link is invalid or has expired. Please request a new one.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    stmts.resetPasswordAndClearToken.run(hashedPassword, user.id);
+
+    // Invalidate any existing session so old tokens can't linger
+    stmts.clearUserRefreshToken.run(user.id);
+
+    logActivity(user.id, 'PASSWORD_RESET_COMPLETED', { email: user.email }, req);
+
+    res.json({ message: 'Password reset successful. Please log in with your new password.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
