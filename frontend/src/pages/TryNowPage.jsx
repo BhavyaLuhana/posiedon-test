@@ -13,100 +13,38 @@ const TryNowPage = () => {
     name: '',
     email: '',
     phone: '',
-    age: '',
-    panCardNumber: '',
-    aadharNumber: '',
-    educationLevel: '',
-    professionalQualification: '',
-    clientType: 'Retail',
-    debtLoanAmount: '',
-    investmentAmount: '',
-    incomeTypes: [],
-    annualIncome: '',
-    totalNetWorth: '',
-    assets: {
-      realEstate: '',
-      equity: '',
-      alternatives: '',
-      fixedIncomeAndCash: ''
-    }
+    preferredContactTime: '',
   });
 
-  const educationOptions = ['High School', 'Graduate', 'Post Graduate', 'Doctorate', 'Other'];
-  const incomeTypeOptions = ['Salary', 'Business', 'Investments', 'Rental', 'Pension', 'Other'];
-
   const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    
-    if (name.includes('.')) {
-      const [parent, child] = name.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: value
-        }
-      }));
-    } else if (type === 'checkbox') {
-      setFormData(prev => ({
-        ...prev,
-        incomeTypes: checked 
-          ? [...prev.incomeTypes, value]
-          : prev.incomeTypes.filter(item => item !== value)
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const validateForm = () => {
-    const required = ['name', 'email', 'phone', 'age', 'panCardNumber', 'aadharNumber', 
-                      'educationLevel', 'clientType', 'investmentAmount', 'annualIncome', 'totalNetWorth'];
-    
-    for (let field of required) {
-      if (!formData[field]) {
-        toast.error(`Please fill in ${field.replace(/([A-Z])/g, ' $1').toLowerCase()}`);
-        return false;
-      }
+    // Name validation
+    if (!formData.name || !formData.name.trim()) {
+      toast.error('Please enter your full name');
+      return false;
     }
-    
+
     // Email validation
     const emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(formData.email)) {
       toast.error('Please enter a valid email address');
       return false;
     }
-    
+
     // Phone validation
     const phoneRegex = /^[0-9]{10}$/;
     if (!phoneRegex.test(formData.phone)) {
       toast.error('Please enter a valid 10-digit phone number');
       return false;
     }
-    
-    // PAN validation
-    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-    if (!panRegex.test(formData.panCardNumber.toUpperCase())) {
-      toast.error('Please enter a valid PAN card number (e.g., ABCDE1234F)');
-      return false;
-    }
-    
-    // Aadhar validation
-    const aadharRegex = /^[0-9]{12}$/;
-    if (!aadharRegex.test(formData.aadharNumber)) {
-      toast.error('Please enter a valid 12-digit Aadhar number');
-      return false;
-    }
-    
-    // Age validation
-    if (parseInt(formData.age) < 18 || parseInt(formData.age) > 100) {
-      toast.error('Age must be between 18 and 100');
-      return false;
-    }
-    
+
     return true;
   };
 
@@ -118,28 +56,12 @@ const TryNowPage = () => {
     setLoading(true);
     
     try {
-      const submitData = {
-        ...formData,
-        age: parseInt(formData.age),
-        panCardNumber: formData.panCardNumber.toUpperCase(),
-        debtLoanAmount: parseFloat(formData.debtLoanAmount) || 0,
-        investmentAmount: parseFloat(formData.investmentAmount),
-        annualIncome: parseFloat(formData.annualIncome),
-        totalNetWorth: parseFloat(formData.totalNetWorth),
-        assets: {
-          realEstate: parseFloat(formData.assets.realEstate) || 0,
-          equity: parseFloat(formData.assets.equity) || 0,
-          alternatives: parseFloat(formData.assets.alternatives) || 0,
-          fixedIncomeAndCash: parseFloat(formData.assets.fixedIncomeAndCash) || 0
-        }
-      };
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await axios.post(`${API_URL}/api/clients/submit`, submitData);
+      const response = await axios.post(`${API_URL}/api/leads/submit`, formData);
       
       if (response.data.success) {
         setSubmitted(true);
-        toast.success('✅ Form submitted successfully! We will contact you within 24-48 hours.');
-        // Scroll to top to show success message
+        toast.success('✅ Thank you! We will contact you shortly to schedule a consultation.');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (error) {
@@ -171,10 +93,10 @@ const TryNowPage = () => {
                 </svg>
               </div>
               <h2 className="text-2xl md:text-3xl font-bold text-primary-dark mb-4">
-                Form Submitted Successfully! 🎉
+                Thank You for Your Interest! 🎉
               </h2>
               <p className="text-text-muted text-lg mb-4">
-                Thank you for sharing your details with us.
+                We have received your details and will contact you shortly to schedule a consultation.
               </p>
               <div className="bg-primary-light/10 rounded-lg p-4 mb-6">
                 <p className="text-sm text-primary-dark font-medium">
@@ -184,7 +106,7 @@ const TryNowPage = () => {
               <div className="space-y-3 text-left max-w-md mx-auto">
                 <div className="flex items-center gap-3 text-sm text-text-muted">
                   <span className="text-green-500">✓</span>
-                  <span>Our team will review your details</span>
+                  <span>Our team will review your request</span>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-text-muted">
                   <span className="text-green-500">✓</span>
@@ -192,7 +114,7 @@ const TryNowPage = () => {
                 </div>
                 <div className="flex items-center gap-3 text-sm text-text-muted">
                   <span className="text-green-500">✓</span>
-                  <span>Keep your documents ready for verification</span>
+                  <span>We'll schedule a consultation at your preferred time</span>
                 </div>
               </div>
               <button
@@ -213,7 +135,7 @@ const TryNowPage = () => {
     <>
       <Navbar />
       <div className="min-h-screen bg-gray-50 pt-20 pb-12">
-        <div className="container-custom max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container-custom max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Trust Banner */}
           <div className="bg-gradient-to-r from-primary-dark to-primary-dark/90 rounded-2xl p-4 md:p-6 mb-6 text-white">
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -241,10 +163,10 @@ const TryNowPage = () => {
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-10">
             <div className="text-center mb-8">
               <h1 className="text-3xl md:text-4xl font-extrabold text-primary-dark">
-                Client Onboarding Form
+                Start Your Financial Journey
               </h1>
               <p className="text-text-muted mt-2">
-                Fill in your details and our team will contact you within 24-48 hours
+                Share your contact details and our experts will reach out to you
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-3">
                 <span className="inline-flex items-center gap-1 px-3 py-1 bg-primary-light/10 rounded-full text-xs font-medium text-primary-dark">
@@ -260,310 +182,71 @@ const TryNowPage = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Client Type Selection */}
-              <div className="bg-primary-dark/5 rounded-xl p-6">
-                <label className="block text-sm font-semibold text-primary-dark mb-3">
-                  I am a * 
-                </label>
-                <div className="flex gap-4 flex-wrap">
-                  {['Retail', 'Corporate'].map((type) => (
-                    <label key={type} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="clientType"
-                        value={type}
-                        checked={formData.clientType === type}
-                        onChange={handleChange}
-                        className="w-4 h-4 text-primary-light"
-                      />
-                      <span className="font-medium">{type} Client</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Personal Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter your full name"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Email Address *
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="your@email.com"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Phone Number *
-                  </label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="9876543210"
-                    maxLength="10"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Age *
-                  </label>
-                  <input
-                    type="number"
-                    name="age"
-                    value={formData.age}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter your age"
-                    min="18"
-                    max="100"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    PAN Card Number *
-                  </label>
-                  <input
-                    type="text"
-                    name="panCardNumber"
-                    value={formData.panCardNumber}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent uppercase"
-                    placeholder="ABCDE1234F"
-                    maxLength="10"
-                    required
-                  />
-                  <p className="text-xs text-text-muted mt-1">🔒 Encrypted for security</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Aadhar Number *
-                  </label>
-                  <input
-                    type="text"
-                    name="aadharNumber"
-                    value={formData.aadharNumber}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter 12-digit Aadhar number"
-                    maxLength="12"
-                    required
-                  />
-                  <p className="text-xs text-text-muted mt-1">🔒 Encrypted for security</p>
-                </div>
-              </div>
-
-              {/* Education & Professional */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Education Level *
-                  </label>
-                  <select
-                    name="educationLevel"
-                    value={formData.educationLevel}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    required
-                  >
-                    <option value="">Select education level</option>
-                    {educationOptions.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Professional Qualification
-                  </label>
-                  <input
-                    type="text"
-                    name="professionalQualification"
-                    value={formData.professionalQualification}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="e.g., CA, MBA, B.Tech"
-                  />
-                </div>
-              </div>
-
-              {/* Financial Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Debt/Loan Amount (₹)
-                  </label>
-                  <input
-                    type="number"
-                    name="debtLoanAmount"
-                    value={formData.debtLoanAmount}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="0"
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Amount for Investments (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    name="investmentAmount"
-                    value={formData.investmentAmount}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter investment amount"
-                    min="0"
-                    required
-                  />
-                </div>
-              </div>
-
+              {/* Name */}
               <div>
                 <label className="block text-sm font-semibold text-primary-dark mb-2">
-                  Income Type/s *
+                  Full Name *
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {incomeTypeOptions.map(type => (
-                    <label key={type} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        value={type}
-                        checked={formData.incomeTypes.includes(type)}
-                        onChange={handleChange}
-                        className="w-4 h-4 text-primary-light rounded"
-                      />
-                      <span className="text-sm">{type}</span>
-                    </label>
-                  ))}
-                </div>
+                <input
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent transition-all"
+                  placeholder="Enter your full name"
+                  required
+                />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Annual Income (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    name="annualIncome"
-                    value={formData.annualIncome}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter annual income"
-                    min="0"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-primary-dark mb-2">
-                    Total Net Worth (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    name="totalNetWorth"
-                    value={formData.totalNetWorth}
-                    onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                    placeholder="Enter total net worth"
-                    min="0"
-                    required
-                  />
-                </div>
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-semibold text-primary-dark mb-2">
+                  Email Address *
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent transition-all"
+                  placeholder="your@email.com"
+                  required
+                />
               </div>
 
-              {/* Asset Classes */}
-              <div className="bg-gray-50 rounded-xl p-6">
-                <h3 className="text-lg font-bold text-primary-dark mb-4">Asset Allocation</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-primary-dark mb-2">
-                      Real Estate (₹)
-                    </label>
-                    <input
-                      type="number"
-                      name="assets.realEstate"
-                      value={formData.assets.realEstate}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                      placeholder="0"
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-primary-dark mb-2">
-                      Equity (₹)
-                    </label>
-                    <input
-                      type="number"
-                      name="assets.equity"
-                      value={formData.assets.equity}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                      placeholder="0"
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-primary-dark mb-2">
-                      Alternatives (₹)
-                    </label>
-                    <input
-                      type="number"
-                      name="assets.alternatives"
-                      value={formData.assets.alternatives}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                      placeholder="0"
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-primary-dark mb-2">
-                      Fixed Income & Cash (₹)
-                    </label>
-                    <input
-                      type="number"
-                      name="assets.fixedIncomeAndCash"
-                      value={formData.assets.fixedIncomeAndCash}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent"
-                      placeholder="0"
-                      min="0"
-                    />
-                  </div>
-                </div>
+              {/* Phone */}
+              <div>
+                <label className="block text-sm font-semibold text-primary-dark mb-2">
+                  Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent transition-all"
+                  placeholder="9876543210"
+                  maxLength="10"
+                  required
+                />
+                <p className="text-xs text-text-muted mt-1">🔒 We'll never share your phone number</p>
+              </div>
+
+              {/* Preferred Contact Time */}
+              <div>
+                <label className="block text-sm font-semibold text-primary-dark mb-2">
+                  Preferred Contact Time
+                  <span className="text-text-muted font-normal ml-1">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  name="preferredContactTime"
+                  value={formData.preferredContactTime}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-light focus:border-transparent transition-all"
+                  placeholder="e.g., Weekday evenings, Weekend mornings, 2-4 PM IST"
+                />
+                <p className="text-xs text-text-muted mt-1">⏰ We'll try to contact you at your preferred time</p>
               </div>
 
               {/* Privacy & Submit */}
@@ -598,7 +281,7 @@ const TryNowPage = () => {
                       Submitting...
                     </span>
                   ) : (
-                    'Submit Form'
+                    'Get Started'
                   )}
                 </button>
                 <button

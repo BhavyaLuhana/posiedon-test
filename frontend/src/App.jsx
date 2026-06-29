@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { ClientAuthProvider } from './context/ClientAuthContext'
 import Navbar from './components/Layout/Navbar'
 import Footer from './components/Layout/Footer'
 import HomePage from './pages/HomePage'
@@ -18,91 +19,136 @@ import AdminDashboard from './pages/AdminDashboard'
 import ClientDetail from './pages/ClientDetail'
 import TryNowPage from './pages/TryNowPage'
 import AdminLogin from './pages/AdminLogin'
-import AdminSetup from './pages/AdminSetup'
-import ForgotPassword from './pages/ForgotPassword'
-import ResetPassword from './pages/ResetPassword'
+import AdminSetup from './pages/Adminsetup'
+import ForgotPassword from './pages/Forgotpassword'
+import ResetPassword from './pages/Resetpassword'
+
+// NEW: Client Pages
+import ClientLogin from './pages/ClientLogin'
+import ClientRegister from './pages/ClientRegister'
+import ClientDashboard from './pages/ClientDashboard'
+import ClientProfileForm from './pages/ClientProfileForm'
+
 import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedClientRoute from './components/ProtectedClientRoute'
 import { Toaster } from 'react-hot-toast'
 
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 5000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-            success: {
+      <ClientAuthProvider>
+        <Router>
+          <Toaster
+            position="top-right"
+            toastOptions={{
               duration: 5000,
-              iconTheme: {
-                primary: '#8BC34A',
-                secondary: '#fff',
+              style: {
+                background: '#363636',
+                color: '#fff',
               },
-            },
-            error: {
-              duration: 5000,
-              iconTheme: {
-                primary: '#EF4444',
-                secondary: '#fff',
+              success: {
+                duration: 5000,
+                iconTheme: {
+                  primary: '#8BC34A',
+                  secondary: '#fff',
+                },
               },
-            },
-          }}
-        />
-        <div className="flex flex-col min-h-screen">
-          <Navbar />
-          <main className="flex-grow">
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<HomePage />} />
-              <Route path="/about" element={<AboutUs />} />
-              <Route path="/retail/plan-fees" element={<RetailPlanFees />} />
-              <Route path="/retail/features" element={<RetailFeatures />} />
-              <Route path="/retail/consulting" element={<RetailConsulting />} />
-              <Route path="/corporate/plans" element={<CorporatePlans />} />
-              <Route path="/corporate/structure" element={<CorporateStructure />} />
-              <Route path="/testimonial" element={<TestimonialPage />} />
-              <Route path="/contact" element={<ContactPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/onboard" element={<ClientOnboarding />} />
-              <Route path="/try-now" element={<TryNowPage />} />
+              error: {
+                duration: 5000,
+                iconTheme: {
+                  primary: '#EF4444',
+                  secondary: '#fff',
+                },
+              },
+            }}
+          />
+          <div className="flex flex-col min-h-screen">
+            <Navbar />
+            <main className="flex-grow">
+              <Routes>
+                {/* ============ PUBLIC ROUTES ============ */}
+                <Route path="/" element={<HomePage />} />
+                <Route path="/about" element={<AboutUs />} />
+                <Route path="/retail/plan-fees" element={<RetailPlanFees />} />
+                <Route path="/retail/features" element={<RetailFeatures />} />
+                <Route path="/retail/consulting" element={<RetailConsulting />} />
+                <Route path="/corporate/plans" element={<CorporatePlans />} />
+                <Route path="/corporate/structure" element={<CorporateStructure />} />
+                <Route path="/testimonial" element={<TestimonialPage />} />
+                <Route path="/contact" element={<ContactPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/onboard" element={<ClientOnboarding />} />
+                <Route path="/try-now" element={<TryNowPage />} />
 
-              {/* Admin Routes */}
-              <Route path="/admin-login" element={<AdminLogin />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route
-                path="/admin-setup"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <AdminSetup />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <AdminDashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/client/:id"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <ClientDetail />
-                  </ProtectedRoute>
-                }
-              />
-            </Routes>
-          </main>
-          <Footer />
-        </div>
-      </Router>
+                {/* ============ ADMIN AUTH ROUTES ============ */}
+                <Route path="/admin-login" element={<AdminLogin />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route
+                  path="/admin-setup"
+                  element={
+                    <ProtectedRoute adminOnly>
+                      <AdminSetup />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* ============ ADMIN PROTECTED ROUTES ============ */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute adminOnly>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/client/:id"
+                  element={
+                    <ProtectedRoute adminOnly>
+                      <ClientDetail />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* ============ CLIENT AUTH ROUTES ============ */}
+                <Route path="/client-login" element={<ClientLogin />} />
+                <Route path="/client-register" element={<ClientRegister />} />
+
+                {/* ============ CLIENT PROTECTED ROUTES ============ */}
+                <Route
+                  path="/client-dashboard"
+                  element={
+                    <ProtectedClientRoute>
+                      <ClientDashboard />
+                    </ProtectedClientRoute>
+                  }
+                />
+                <Route
+                  path="/client-profile/complete"
+                  element={
+                    <ProtectedClientRoute>
+                      <ClientProfileForm mode="complete" />
+                    </ProtectedClientRoute>
+                  }
+                />
+                <Route
+                  path="/client-profile/edit"
+                  element={
+                    <ProtectedClientRoute requireProfileComplete={true}>
+                      <ClientProfileForm mode="edit" />
+                    </ProtectedClientRoute>
+                  }
+                />
+
+                {/* ============ CATCH-ALL ============ */}
+                <Route path="*" element={<HomePage />} />
+              </Routes>
+            </main>
+            <Footer />
+          </div>
+        </Router>
+      </ClientAuthProvider>
     </AuthProvider>
   )
 }

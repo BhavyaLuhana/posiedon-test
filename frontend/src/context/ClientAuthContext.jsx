@@ -1,0 +1,103 @@
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import { 
+  clientLogin as apiClientLogin, 
+  clientLogout as apiClientLogout,
+  getClientProfile,
+  clientRegister as apiClientRegister
+} from '../services/api';
+import { toast } from 'react-hot-toast';
+
+const ClientAuthContext = createContext(null);
+
+export const useClientAuth = () => {
+  const context = useContext(ClientAuthContext);
+  if (!context) {
+    throw new Error('useClientAuth must be used within a ClientAuthProvider');
+  }
+  return context;
+};
+
+export const ClientAuthProvider = ({ children }) => {
+  const [client, setClient] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const data = await getClientProfile();
+      setClient(data);
+      setIsAuthenticated(true);
+    } catch (error) {
+      // Not authenticated or error
+      setClient(null);
+      setIsAuthenticated(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clientLogin = async (email, password) => {
+    try {
+      const data = await apiClientLogin(email, password);
+      setClient(data.user);
+      setIsAuthenticated(true);
+      toast.success('Login successful!');
+      return data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Login failed');
+      throw error;
+    }
+  };
+
+  const clientRegister = async (email, password) => {
+    try {
+      const data = await apiClientRegister(email, password);
+      toast.success(data.message || 'Registration successful! Please login.');
+      return data;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Registration failed');
+      throw error;
+    }
+  };
+
+  const clientLogout = async () => {
+    try {
+      await apiClientLogout();
+      setClient(null);
+      setIsAuthenticated(false);
+      toast.success('Logged out successfully');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still clear local state even if API call fails
+      setClient(null);
+      setIsAuthenticated(false);
+    }
+  };
+
+  const updateClient = (updatedData) => {
+    setClient(prev => ({ ...prev, ...updatedData }));
+  };
+
+  const value = {
+    client,
+    loading,
+    isAuthenticated,
+    clientLogin,
+    clientRegister,
+    clientLogout,
+    checkAuth,
+    updateClient,
+  };
+
+  return (
+    <ClientAuthContext.Provider value={value}>
+      {children}
+    </ClientAuthContext.Provider>
+  );
+};
+
+export default ClientAuthContext;

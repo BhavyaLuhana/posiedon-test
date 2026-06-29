@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getAllClients, deleteClient } from '../services/api';
+import { getAllClients, deleteClient, approveLead } from '../services/api';
 import AnimatedSection from '../components/UI/AnimatedSection';
 import { generateAllClientsPDF } from '../utils/pdfGenerator';
+import { toast } from 'react-hot-toast';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -11,7 +12,7 @@ const AdminDashboard = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
 
   useEffect(() => {
     fetchClients();
@@ -19,8 +20,6 @@ const AdminDashboard = () => {
 
   const fetchClients = async () => {
     try {
-      // getAllClients() returns the full envelope { success, data }
-      // — the array of clients is in .data, not the response itself.
       const response = await getAllClients();
       setClients(response.data || []);
     } catch (error) {
@@ -37,10 +36,24 @@ const AdminDashboard = () => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
       try {
         await deleteClient(id);
-        // backend uses "id", not "_id"
         setClients(clients.filter(client => client.id !== id));
+        toast.success('Client deleted successfully');
       } catch (error) {
         console.error('Error deleting client:', error);
+        toast.error('Failed to delete client');
+      }
+    }
+  };
+
+  const handleApprove = async (id, name) => {
+    if (window.confirm(`Approve ${name} for registration?`)) {
+      try {
+        await approveLead(id);
+        toast.success(`${name} has been approved for registration`);
+        fetchClients(); // Refresh the list
+      } catch (error) {
+        console.error('Error approving lead:', error);
+        toast.error(error.response?.data?.message || 'Failed to approve lead');
       }
     }
   };
@@ -53,24 +66,45 @@ const AdminDashboard = () => {
     generateAllClientsPDF(clients);
   };
 
+  const getStatusColor = (status) => {
+    const colors = {
+      'Pending': 'bg-yellow-100 text-yellow-800',
+      'Scheduled': 'bg-blue-100 text-blue-800',
+      'Registered': 'bg-purple-100 text-purple-800',
+      'Active': 'bg-green-100 text-green-800'
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getStatusBadge = (status) => {
+    const labels = {
+      'Pending': '⏳ Pending',
+      'Scheduled': '📅 Scheduled',
+      'Registered': '🔐 Registered',
+      'Active': '✅ Active'
+    };
+    return labels[status] || status;
+  };
+
   const filteredClients = clients.filter(client => {
     const matchesSearch =
       (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (client.panCardNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (client.panCardNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (client.email || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-    // clientType is stored as "Retail" / "Corporate" (capitalized) in the DB,
-    // while the filter dropdown uses lowercase values — normalize before comparing.
     const matchesFilter =
-      filterType === 'all' ||
-      (client.clientType || '').toLowerCase() === filterType;
+      filterStatus === 'all' ||
+      (client.status || '').toLowerCase() === filterStatus;
 
     return matchesSearch && matchesFilter;
   });
 
   const stats = {
     total: clients.length,
-    retail: clients.filter(c => (c.clientType || '').toLowerCase() === 'retail').length,
-    corporate: clients.filter(c => (c.clientType || '').toLowerCase() === 'corporate').length
+    pending: clients.filter(c => c.status === 'Pending').length,
+    scheduled: clients.filter(c => c.status === 'Scheduled').length,
+    registered: clients.filter(c => c.status === 'Registered').length,
+    active: clients.filter(c => c.status === 'Active').length
   };
 
   if (loading) {
@@ -126,18 +160,26 @@ const AdminDashboard = () => {
         <div className="container-custom">
           <AnimatedSection>
             {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white p-6 rounded-xl shadow-md">
-                <h3 className="text-sm font-medium text-gray-500">Total Clients</h3>
-                <p className="text-3xl font-bold text-primary-dark">{stats.total}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+              <div className="bg-white p-4 rounded-xl shadow-md">
+                <h3 className="text-xs font-medium text-gray-500">Total</h3>
+                <p className="text-2xl font-bold text-primary-dark">{stats.total}</p>
               </div>
-              <div className="bg-white p-6 rounded-xl shadow-md">
-                <h3 className="text-sm font-medium text-gray-500">Retail Clients</h3>
-                <p className="text-3xl font-bold text-primary-dark">{stats.retail}</p>
+              <div className="bg-white p-4 rounded-xl shadow-md">
+                <h3 className="text-xs font-medium text-yellow-600">Pending</h3>
+                <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
               </div>
-              <div className="bg-white p-6 rounded-xl shadow-md">
-                <h3 className="text-sm font-medium text-gray-500">Corporate Clients</h3>
-                <p className="text-3xl font-bold text-primary-dark">{stats.corporate}</p>
+              <div className="bg-white p-4 rounded-xl shadow-md">
+                <h3 className="text-xs font-medium text-blue-600">Scheduled</h3>
+                <p className="text-2xl font-bold text-blue-600">{stats.scheduled}</p>
+              </div>
+              <div className="bg-white p-4 rounded-xl shadow-md">
+                <h3 className="text-xs font-medium text-purple-600">Registered</h3>
+                <p className="text-2xl font-bold text-purple-600">{stats.registered}</p>
+              </div>
+              <div className="bg-white p-4 rounded-xl shadow-md">
+                <h3 className="text-xs font-medium text-green-600">Active</h3>
+                <p className="text-2xl font-bold text-green-600">{stats.active}</p>
               </div>
             </div>
 
@@ -147,7 +189,7 @@ const AdminDashboard = () => {
                 <div className="flex-1 min-w-[200px]">
                   <input
                     type="text"
-                    placeholder="Search by name or PAN..."
+                    placeholder="Search by name, PAN or email..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors"
@@ -155,13 +197,15 @@ const AdminDashboard = () => {
                 </div>
                 <div className="min-w-[150px]">
                   <select
-                    value={filterType}
-                    onChange={(e) => setFilterType(e.target.value)}
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:border-primary-light focus:ring-2 focus:ring-primary-light/20 transition-colors bg-white"
                   >
-                    <option value="all">All Clients</option>
-                    <option value="retail">Retail</option>
-                    <option value="corporate">Corporate</option>
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="registered">Registered</option>
+                    <option value="active">Active</option>
                   </select>
                 </div>
               </div>
@@ -170,31 +214,25 @@ const AdminDashboard = () => {
             {/* Client Grid */}
             {filteredClients.length === 0 ? (
               <div className="bg-white p-12 rounded-xl shadow-md text-center">
-                <p className="text-gray-500">No clients found. Start by adding a new client!</p>
+                <p className="text-gray-500">No clients found.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredClients.map((client) => (
                   <div
                     key={client.id}
-                    className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow cursor-pointer"
-                    onClick={() => navigate(`/client/${client.id}`)}
+                    className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow"
                   >
                     <div className="p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center gap-3">
-                          {/* No photo field exists in the schema — always show the placeholder avatar */}
                           <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center text-xl text-gray-400">
                             👤
                           </div>
                           <div>
                             <h3 className="font-bold text-primary-dark">{client.name}</h3>
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              client.clientType === 'Retail'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-purple-100 text-purple-800'
-                            }`}>
-                              {client.clientType}
+                            <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(client.status)}`}>
+                              {getStatusBadge(client.status)}
                             </span>
                           </div>
                         </div>
@@ -210,19 +248,48 @@ const AdminDashboard = () => {
                           </svg>
                         </button>
                       </div>
-                      <div className="space-y-2 text-sm">
-                        <p><span className="text-gray-500">PAN:</span> {client.panCardNumber}</p>
-                        <p><span className="text-gray-500">Investment:</span> ₹{client.investmentAmount ?? 'N/A'}</p>
-                        <p><span className="text-gray-500">Annual Income:</span> ₹{client.annualIncome ?? 'N/A'}</p>
+
+                      <div className="space-y-1 text-sm">
+                        <p><span className="text-gray-500">Email:</span> {client.email}</p>
+                        <p><span className="text-gray-500">Phone:</span> {client.phone}</p>
+                        <p><span className="text-gray-500">PAN:</span> {client.panCardNumber || 'Not provided'}</p>
+                        {client.status === 'Pending' && (
+                          <p className="text-xs text-yellow-600 mt-1">⏳ Awaiting approval</p>
+                        )}
+                        {client.status === 'Scheduled' && (
+                          <p className="text-xs text-blue-600 mt-1">📅 Approved for registration</p>
+                        )}
+                        {client.status === 'Registered' && (
+                          <p className="text-xs text-purple-600 mt-1">🔐 Registered, profile pending</p>
+                        )}
+                        {client.status === 'Active' && (
+                          <p className="text-xs text-green-600 mt-1">✅ Profile complete</p>
+                        )}
                       </div>
-                      <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-xs text-gray-500">
-                        <span>
-                          Submitted{' '}
-                          {client.submittedAt
-                            ? new Date(client.submittedAt).toLocaleDateString()
-                            : 'N/A'}
+
+                      <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-2 justify-between items-center">
+                        <span className="text-xs text-gray-500">
+                          Submitted {client.submittedAt ? new Date(client.submittedAt).toLocaleDateString() : 'N/A'}
                         </span>
-                        <span className="text-primary-dark font-medium">Click to view →</span>
+                        <div className="flex gap-2">
+                          {client.status === 'Pending' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleApprove(client.id, client.name);
+                              }}
+                              className="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          <button
+                            onClick={() => navigate(`/client/${client.id}`)}
+                            className="text-xs px-3 py-1 bg-primary-light text-primary-dark rounded-lg hover:bg-opacity-90 transition-colors"
+                          >
+                            View →
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

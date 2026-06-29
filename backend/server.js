@@ -68,11 +68,18 @@ const forgotPasswordLimiter = rateLimit({
   message: 'Too many password reset requests. Please try again later.',
   standardHeaders: true, legacyHeaders: false,
 });
+const clientAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10,
+  message: 'Too many login attempts, please try again later.',
+  standardHeaders: true, legacyHeaders: false,
+});
 
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', forgotPasswordLimiter);
-app.use('/api/clients/submit', submitLimiter);
+app.use('/api/client-auth/login', clientAuthLimiter);
+app.use('/api/client-auth/register', clientAuthLimiter);
+app.use('/api/leads/submit', submitLimiter);
 app.use(limiter);
 
 app.use(morgan(morganFormat, { stream: accessLogStream }));
@@ -175,11 +182,23 @@ async function sendPasswordResetEmail(toEmail, resetUrl) {
 
 // ============ SQLITE SETUP ============
 const DB_PATH = process.env.SQLITE_PATH || path.join(__dirname, 'planposeidon.db');
+
+// Backup existing DB before migration (safety)
+if (fs.existsSync(DB_PATH)) {
+  const backupPath = DB_PATH + '.backup';
+  if (!fs.existsSync(backupPath)) {
+    fs.copyFileSync(DB_PATH, backupPath);
+    console.log('📦 Created database backup:', backupPath);
+  }
+}
+
 const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');   // better concurrent read/write behavior
+db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// ============ NEW SCHEMA with all changes ============
 db.exec(`
+  -- Users table (unchanged)
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -200,40 +219,47 @@ db.exec(`
     updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- NEW clients table with nullable fields + password + new statuses
   CREATE TABLE IF NOT EXISTS clients (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    email TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
     phone TEXT NOT NULL,
-    age INTEGER NOT NULL CHECK(age >= 18 AND age <= 120),
-    panCardNumber TEXT NOT NULL,
-    aadharNumber TEXT NOT NULL,
+    preferredContactTime TEXT,
+    password TEXT,  -- NULL until client registers
+    age INTEGER CHECK(age >= 18 AND age <= 120),
+    panCardNumber TEXT,
+    aadharNumber TEXT,
     panCardHash TEXT,
     aadharHash TEXT,
-    educationLevel TEXT NOT NULL,
+    educationLevel TEXT,
     professionalQualification TEXT,
-    clientType TEXT NOT NULL CHECK(clientType IN ('Retail','Corporate')),
-    debtLoanAmount REAL NOT NULL DEFAULT 0,
-    investmentAmount REAL NOT NULL,
-    incomeTypes TEXT NOT NULL DEFAULT '[]',
-    annualIncome REAL NOT NULL,
-    totalNetWorth REAL NOT NULL,
-    assetRealEstate REAL NOT NULL DEFAULT 0,
-    assetEquity REAL NOT NULL DEFAULT 0,
-    assetAlternatives REAL NOT NULL DEFAULT 0,
-    assetFixedIncomeAndCash REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'Pending' CHECK(status IN ('Pending','Contacted','Approved','Rejected')),
+    clientType TEXT CHECK(clientType IN ('Retail','Corporate')),
+    debtLoanAmount REAL DEFAULT 0,
+    investmentAmount REAL,
+    incomeTypes TEXT DEFAULT '[]',
+    annualIncome REAL,
+    totalNetWorth REAL,
+    assetRealEstate REAL DEFAULT 0,
+    assetEquity REAL DEFAULT 0,
+    assetAlternatives REAL DEFAULT 0,
+    assetFixedIncomeAndCash REAL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'Pending' CHECK(status IN ('Pending','Scheduled','Registered','Active')),
+    profileComplete INTEGER NOT NULL DEFAULT 0,
     notes TEXT,
     submittedAt TEXT NOT NULL DEFAULT (datetime('now')),
-    contactedAt TEXT,
     ipAddress TEXT,
-    userAgent TEXT
+    userAgent TEXT,
+    registeredAt TEXT
   );
+
   CREATE INDEX IF NOT EXISTS idx_clients_panHash ON clients(panCardHash);
   CREATE INDEX IF NOT EXISTS idx_clients_aadharHash ON clients(aadharHash);
   CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
   CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
+  CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
 
+  -- Activity logs (unchanged)
   CREATE TABLE IF NOT EXISTS activity_logs (
     id TEXT PRIMARY KEY,
     userId TEXT,
@@ -245,12 +271,11 @@ db.exec(`
   );
 `);
 
-console.log('✅ SQLite connected:', DB_PATH);
+console.log('✅ SQLite connected with new schema:', DB_PATH);
 
 // ============ HELPER: ROW <-> DTO TRANSFORMS ============
 
-// Convert a client row from SQLite into the shape the frontend expects
-// (decrypts PAN/Aadhar, parses incomeTypes JSON, nests assets back into an object)
+// Convert client row to DTO - handles NULL values gracefully
 function clientRowToDTO(row) {
   if (!row) return null;
   return {
@@ -258,27 +283,53 @@ function clientRowToDTO(row) {
     name: row.name,
     email: row.email,
     phone: row.phone,
+    preferredContactTime: row.preferredContactTime,
     age: row.age,
-    panCardNumber: decrypt(row.panCardNumber),
-    aadharNumber: decrypt(row.aadharNumber),
+    panCardNumber: row.panCardNumber ? decrypt(row.panCardNumber) : null,
+    aadharNumber: row.aadharNumber ? decrypt(row.aadharNumber) : null,
     educationLevel: row.educationLevel,
     professionalQualification: row.professionalQualification,
     clientType: row.clientType,
     debtLoanAmount: row.debtLoanAmount,
     investmentAmount: row.investmentAmount,
-    incomeTypes: JSON.parse(row.incomeTypes || '[]'),
+    incomeTypes: row.incomeTypes ? JSON.parse(row.incomeTypes) : [],
     annualIncome: row.annualIncome,
     totalNetWorth: row.totalNetWorth,
     assets: {
-      realEstate: row.assetRealEstate,
-      equity: row.assetEquity,
-      alternatives: row.assetAlternatives,
-      fixedIncomeAndCash: row.assetFixedIncomeAndCash,
+      realEstate: row.assetRealEstate || 0,
+      equity: row.assetEquity || 0,
+      alternatives: row.assetAlternatives || 0,
+      fixedIncomeAndCash: row.assetFixedIncomeAndCash || 0,
     },
     status: row.status,
+    profileComplete: !!row.profileComplete,
     notes: row.notes,
     submittedAt: row.submittedAt,
-    contactedAt: row.contactedAt,
+    registeredAt: row.registeredAt,
+    hasPassword: !!row.password,
+  };
+}
+
+// For admin list view (minimal, with masked sensitive fields)
+function clientRowToAdminDTO(row) {
+  if (!row) return null;
+  const pan = row.panCardNumber ? decrypt(row.panCardNumber) : null;
+  const aadhar = row.aadharNumber ? decrypt(row.aadharNumber) : null;
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    preferredContactTime: row.preferredContactTime,
+    age: row.age,
+    panCardNumber: pan ? pan.slice(0, 5) + '****' + pan.slice(-1) : null,
+    aadharNumber: aadhar ? aadhar.slice(0, 4) + '****' + aadhar.slice(-4) : null,
+    clientType: row.clientType,
+    status: row.status,
+    profileComplete: !!row.profileComplete,
+    submittedAt: row.submittedAt,
+    registeredAt: row.registeredAt,
+    hasPassword: !!row.password,
   };
 }
 
@@ -290,6 +341,7 @@ function userRowToSafeDTO(row) {
 
 // ============ PREPARED STATEMENTS ============
 const stmts = {
+  // Users
   insertUser: db.prepare(`INSERT INTO users (id, name, email, password, role) VALUES (?, ?, ?, ?, ?)`),
   findUserByEmail: db.prepare(`SELECT * FROM users WHERE email = ?`),
   findUserById: db.prepare(`SELECT * FROM users WHERE id = ?`),
@@ -310,42 +362,95 @@ const stmts = {
   setResetToken: db.prepare(`
     UPDATE users SET resetToken = ?, resetTokenExpiry = ?, updatedAt = datetime('now') WHERE id = ?
   `),
-  findUserByResetToken: db.prepare(`
-    SELECT * FROM users WHERE resetToken = ?
-  `),
+  findUserByResetToken: db.prepare(`SELECT * FROM users WHERE resetToken = ?`),
   resetPasswordAndClearToken: db.prepare(`
     UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiry = NULL,
       loginAttempts = 0, lockUntil = NULL, updatedAt = datetime('now') WHERE id = ?
   `),
 
-  insertClient: db.prepare(`
-    INSERT INTO clients (
-      id, name, email, phone, age, panCardNumber, aadharNumber, panCardHash, aadharHash,
-      educationLevel, professionalQualification, clientType, debtLoanAmount, investmentAmount,
-      incomeTypes, annualIncome, totalNetWorth,
-      assetRealEstate, assetEquity, assetAlternatives, assetFixedIncomeAndCash,
-      ipAddress, userAgent
-    ) VALUES (
-      @id, @name, @email, @phone, @age, @panCardNumber, @aadharNumber, @panCardHash, @aadharHash,
-      @educationLevel, @professionalQualification, @clientType, @debtLoanAmount, @investmentAmount,
-      @incomeTypes, @annualIncome, @totalNetWorth,
-      @assetRealEstate, @assetEquity, @assetAlternatives, @assetFixedIncomeAndCash,
-      @ipAddress, @userAgent
-    )
+  // Clients - NEW
+  insertLead: db.prepare(`
+    INSERT INTO clients (id, name, email, phone, preferredContactTime, ipAddress, userAgent)
+    VALUES (@id, @name, @email, @phone, @preferredContactTime, @ipAddress, @userAgent)
   `),
+  findClientByEmail: db.prepare(`SELECT * FROM clients WHERE email = ?`),
+  findClientByEmailForAuth: db.prepare(`SELECT * FROM clients WHERE email = ? AND status IN ('Scheduled', 'Registered', 'Active')`),
   findClientDuplicate: db.prepare(`
-    SELECT * FROM clients WHERE panCardHash = ? OR aadharHash = ? OR email = ? OR phone = ? LIMIT 1
+    SELECT * FROM clients WHERE email = ? OR phone = ? LIMIT 1
   `),
   findAllClients: db.prepare(`SELECT * FROM clients ORDER BY submittedAt DESC`),
   findClientById: db.prepare(`SELECT * FROM clients WHERE id = ?`),
+  
+  // Admin actions
   updateClientStatus: db.prepare(`
-    UPDATE clients SET status = ?, notes = COALESCE(?, notes), contactedAt = COALESCE(?, contactedAt) WHERE id = ?
+    UPDATE clients SET status = ?, notes = COALESCE(?, notes) WHERE id = ?
   `),
+  
+  // Admin approve (Scheduled)
+  approveLead: db.prepare(`
+    UPDATE clients SET status = 'Scheduled', notes = COALESCE(?, notes) WHERE id = ?
+  `),
+  
+  // Client registration (sets password)
+  registerClient: db.prepare(`
+    UPDATE clients SET password = ?, status = 'Registered', registeredAt = datetime('now')
+    WHERE id = ?
+  `),
+  
+  // Client profile completion
+  completeClientProfile: db.prepare(`
+    UPDATE clients SET 
+      age = @age,
+      panCardNumber = @panCardNumber,
+      aadharNumber = @aadharNumber,
+      panCardHash = @panCardHash,
+      aadharHash = @aadharHash,
+      educationLevel = @educationLevel,
+      professionalQualification = @professionalQualification,
+      clientType = @clientType,
+      debtLoanAmount = @debtLoanAmount,
+      investmentAmount = @investmentAmount,
+      incomeTypes = @incomeTypes,
+      annualIncome = @annualIncome,
+      totalNetWorth = @totalNetWorth,
+      assetRealEstate = @assetRealEstate,
+      assetEquity = @assetEquity,
+      assetAlternatives = @assetAlternatives,
+      assetFixedIncomeAndCash = @assetFixedIncomeAndCash,
+      profileComplete = 1,
+      status = 'Active'
+    WHERE id = @id
+  `),
+  
+  // Update client profile (for edits)
+  // Update client profile (for edits)
+  updateClientProfile: db.prepare(`
+    UPDATE clients SET 
+      name = @name,
+      phone = @phone,
+      preferredContactTime = @preferredContactTime,
+      age = @age,
+      educationLevel = @educationLevel,
+      professionalQualification = @professionalQualification,
+      clientType = @clientType,
+      debtLoanAmount = @debtLoanAmount,
+      investmentAmount = @investmentAmount,
+      incomeTypes = @incomeTypes,
+      annualIncome = @annualIncome,
+      totalNetWorth = @totalNetWorth,
+      assetRealEstate = @assetRealEstate,
+      assetEquity = @assetEquity,
+      assetAlternatives = @assetAlternatives,
+      assetFixedIncomeAndCash = @assetFixedIncomeAndCash
+    WHERE id = @id
+  `),
+  
   deleteClient: db.prepare(`DELETE FROM clients WHERE id = ?`),
   countAllClients: db.prepare(`SELECT COUNT(*) AS c FROM clients`),
   countClientsByStatus: db.prepare(`SELECT COUNT(*) AS c FROM clients WHERE status = ?`),
   countClientsSince: db.prepare(`SELECT COUNT(*) AS c FROM clients WHERE submittedAt >= ?`),
 
+  // Logs
   insertLog: db.prepare(`INSERT INTO activity_logs (id, userId, action, details, ip, userAgent) VALUES (?, ?, ?, ?, ?, ?)`),
   findLogs: db.prepare(`SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT ?`),
 };
@@ -363,32 +468,37 @@ const logActivity = (userId, action, details, req) => {
   }
 };
 
-const generateTokens = (user) => {
+const generateTokens = (user, isClient = false) => {
+  const secret = isClient ? process.env.CLIENT_JWT_SECRET : process.env.JWT_SECRET;
+  const expiry = isClient ? (process.env.CLIENT_JWT_EXPIRY || '7d') : (process.env.JWT_EXPIRY || '15m');
+  const refreshExpiry = isClient ? (process.env.CLIENT_JWT_REFRESH_EXPIRY || '30d') : (process.env.JWT_REFRESH_EXPIRY || '7d');
+  
   const accessToken = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRY || '15m' }
+    { id: user.id, email: user.email, role: isClient ? 'client' : user.role },
+    secret,
+    { expiresIn: expiry }
   );
   const refreshToken = jwt.sign(
-    { id: user.id },
-    process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' }
+    { id: user.id, type: isClient ? 'client' : 'admin' },
+    isClient ? process.env.CLIENT_JWT_REFRESH_SECRET : process.env.JWT_REFRESH_SECRET,
+    { expiresIn: refreshExpiry }
   );
   return { accessToken, refreshToken };
 };
 
-const setAuthCookies = (res, accessToken, refreshToken) => {
-  res.cookie('accessToken', accessToken, {
+const setAuthCookies = (res, accessToken, refreshToken, isClient = false) => {
+  const prefix = isClient ? 'client_' : '';
+  res.cookie(prefix + 'accessToken', accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge: parseInt(process.env.JWT_EXPIRY_MS) || 15 * 60 * 1000
+    maxAge: parseInt(isClient ? process.env.CLIENT_JWT_EXPIRY_MS : process.env.JWT_EXPIRY_MS) || 15 * 60 * 1000
   });
-  res.cookie('refreshToken', refreshToken, {
+  res.cookie(prefix + 'refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge: parseInt(process.env.JWT_REFRESH_EXPIRY_MS) || 7 * 24 * 60 * 60 * 1000
+    maxAge: parseInt(isClient ? process.env.CLIENT_JWT_REFRESH_EXPIRY_MS : process.env.JWT_REFRESH_EXPIRY_MS) || 7 * 24 * 60 * 60 * 1000
   });
 };
 
@@ -403,6 +513,26 @@ const verifyToken = (req, res, next) => {
     if (!user || !user.isActive) return res.status(401).json({ message: 'User not found or inactive' });
 
     req.user = decoded;
+    next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') return res.status(401).json({ message: 'Token expired' });
+    return res.status(403).json({ message: 'Invalid token' });
+  }
+};
+
+const verifyClientToken = (req, res, next) => {
+  try {
+    const token = req.cookies.client_accessToken || req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'Access denied. No token provided.' });
+
+    const decoded = jwt.verify(token, process.env.CLIENT_JWT_SECRET);
+    const client = stmts.findClientById.get(decoded.id);
+    if (!client) return res.status(401).json({ message: 'Client not found' });
+
+    // Check if client is registered (has password)
+    if (!client.password) return res.status(401).json({ message: 'Account not fully registered' });
+
+    req.client = decoded;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') return res.status(401).json({ message: 'Token expired' });
@@ -429,7 +559,7 @@ const sessionTimeout = (req, res, next) => {
   next();
 };
 
-// ============ AUTH ROUTES ============
+// ============ ADMIN AUTH ROUTES (unchanged) ============
 
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -513,12 +643,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// ============ FIRST-LOGIN ADMIN SETUP ============
-// This route is the ONLY way credentials can change without re-supplying
-// the current password — and it only works ONCE per admin account, ever.
-// Once setupComplete flips to 1 in the DB, this route permanently rejects
-// further attempts for that account. There is no way to re-trigger it
-// short of an operator manually resetting the flag in the database.
 app.post('/api/auth/complete-admin-setup', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { newEmail, newPassword } = req.body;
@@ -554,7 +678,6 @@ app.post('/api/auth/complete-admin-setup', verifyToken, verifyAdmin, async (req,
     const hashedPassword = await bcrypt.hash(newPassword, 12);
     stmts.completeAdminSetup.run(newEmail.toLowerCase(), hashedPassword, user.id);
 
-    // Invalidate current session — admin must log in fresh with new credentials
     stmts.clearUserRefreshToken.run(user.id);
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
@@ -568,10 +691,6 @@ app.post('/api/auth/complete-admin-setup', verifyToken, verifyAdmin, async (req,
   }
 });
 
-// ============ FORGOT PASSWORD ============
-// Always returns the same generic success message regardless of whether
-// the email exists, so this endpoint can't be used to enumerate valid
-// admin/client accounts.
 app.post('/api/auth/forgot-password', async (req, res) => {
   const genericResponse = {
     message: 'If an account with that email exists, a password reset link has been sent.'
@@ -583,13 +702,12 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     const user = stmts.findUserByEmail.get(email.toLowerCase());
 
-    // Don't reveal whether the account exists — always respond the same way.
     if (!user || !user.isActive) {
       return res.json(genericResponse);
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min
+    const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     stmts.setResetToken.run(resetToken, resetTokenExpiry, user.id);
 
@@ -599,9 +717,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       await sendPasswordResetEmail(user.email, resetUrl);
       logActivity(user.id, 'FORGOT_PASSWORD_REQUEST', { email: user.email }, req);
     } catch (emailError) {
-      // Email service genuinely not configured / failed to send.
-      // Log it server-side, but still return the generic response —
-      // don't leak that something went wrong to the client.
       console.error('Failed to send reset email:', emailError.message);
     }
 
@@ -612,7 +727,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-// ============ RESET PASSWORD ============
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -643,7 +757,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 12);
     stmts.resetPasswordAndClearToken.run(hashedPassword, user.id);
 
-    // Invalidate any existing session so old tokens can't linger
     stmts.clearUserRefreshToken.run(user.id);
 
     logActivity(user.id, 'PASSWORD_RESET_COMPLETED', { email: user.email }, req);
@@ -707,30 +820,26 @@ app.get('/api/auth/me', verifyToken, sessionTimeout, (req, res) => {
   }
 });
 
-// ============ CLIENT FORM ROUTES ============
-
-app.post('/api/clients/submit', (req, res) => {
+// ============ NEW: LEAD SUBMISSION (lightweight) ============
+app.post('/api/leads/submit', (req, res) => {
   try {
-    const {
-      name, email, phone, age, panCardNumber, aadharNumber,
-      educationLevel, professionalQualification, clientType,
-      debtLoanAmount, investmentAmount, incomeTypes, annualIncome,
-      totalNetWorth, assets
-    } = req.body;
+    const { name, email, phone, preferredContactTime } = req.body;
 
-    if (!name || !email || !phone || !age || !panCardNumber || !aadharNumber ||
-        !educationLevel || !clientType || !investmentAmount || !annualIncome) {
-      return res.status(400).json({ success: false, message: 'Please fill in all required fields.' });
+    // Validate required fields
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Name is required' });
     }
-    if (!['Retail', 'Corporate'].includes(clientType)) {
-      return res.status(400).json({ success: false, message: 'Invalid client type.' });
+    if (!email || !email.match(/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid email address' });
+    }
+    if (!phone || !phone.match(/^[0-9]{10}$/)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid 10-digit phone number' });
     }
 
-    const panHash = hashForLookup(panCardNumber);
-    const aadharHash = hashForLookup(aadharNumber);
     const normalizedEmail = email.toLowerCase();
 
-    const existing = stmts.findClientDuplicate.get(panHash, aadharHash, normalizedEmail, phone);
+    // Check for duplicate
+    const existing = stmts.findClientDuplicate.get(normalizedEmail, phone);
     if (existing) {
       return res.status(400).json({
         success: false,
@@ -740,13 +849,292 @@ app.post('/api/clients/submit', (req, res) => {
     }
 
     const id = randomUUID();
-    const a = assets || {};
 
-    stmts.insertClient.run({
+    stmts.insertLead.run({
       id,
-      name,
+      name: name.trim(),
       email: normalizedEmail,
       phone,
+      preferredContactTime: preferredContactTime || null,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+    });
+
+    const saved = stmts.findClientById.get(id);
+
+    res.status(201).json({
+      success: true,
+      message: 'Thank you! We will contact you shortly to schedule a consultation.',
+      data: { id, submittedAt: saved.submittedAt }
+    });
+  } catch (error) {
+    console.error('Lead submission error:', error);
+    res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
+  }
+});
+
+// ============ NEW: ADMIN APPROVE LEAD ============
+app.post('/api/admin/leads/:id/approve', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
+  try {
+    const { notes } = req.body;
+    const existing = stmts.findClientById.get(req.params.id);
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Lead not found' });
+    }
+
+    if (existing.status !== 'Pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Lead is already ${existing.status}. Cannot approve again.`
+      });
+    }
+
+    stmts.approveLead.run(notes || null, req.params.id);
+
+    const updated = stmts.findClientById.get(req.params.id);
+    logActivity(req.user.id, 'APPROVE_LEAD', {
+      clientId: updated.id,
+      clientName: updated.name,
+      clientEmail: updated.email
+    }, req);
+
+    res.json({
+      success: true,
+      message: 'Lead approved for registration. Client can now register.',
+      data: clientRowToAdminDTO(updated)
+    });
+  } catch (error) {
+    console.error('Approve lead error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ============ NEW: CLIENT AUTH ROUTES ============
+
+// Client Registration (set password after approval)
+app.post('/api/client-auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !email.match(/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/)) {
+      return res.status(400).json({ message: 'Please enter a valid email address' });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+    }
+    if (!/[A-Z]/.test(password)) {
+      return res.status(400).json({ message: 'Password must contain at least one uppercase letter' });
+    }
+    if (!/[0-9]/.test(password)) {
+      return res.status(400).json({ message: 'Password must contain at least one number' });
+    }
+    if (!/[!@#$%^&*]/.test(password)) {
+      return res.status(400).json({ message: 'Password must contain at least one special character (!@#$%^&*)' });
+    }
+
+    const client = stmts.findClientByEmail.get(email.toLowerCase());
+
+    if (!client) {
+      return res.status(400).json({ message: 'No account found with this email. Please submit your details first.' });
+    }
+
+    if (client.status === 'Pending') {
+      return res.status(400).json({
+        message: 'Your submission is still pending approval. We will contact you to schedule a consultation before you can register.'
+      });
+    }
+
+    if (client.status === 'Scheduled') {
+      // Check if already has password (shouldn't happen, but safety)
+      if (client.password) {
+        return res.status(400).json({ message: 'This account is already registered. Please login.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 12);
+      stmts.registerClient.run(hashedPassword, client.id);
+
+      const updated = stmts.findClientById.get(client.id);
+      logActivity(null, 'CLIENT_REGISTERED', { clientId: updated.id, email: updated.email }, req);
+
+      return res.json({
+        message: 'Registration successful! You can now login with your credentials.',
+        data: { id: updated.id, email: updated.email, status: updated.status }
+      });
+    }
+
+    if (client.status === 'Registered' || client.status === 'Active') {
+      if (client.password) {
+        return res.status(400).json({ message: 'This account is already registered. Please login.' });
+      }
+      // Shouldn't happen, but if status is Registered/Active without password, fix it
+      const hashedPassword = await bcrypt.hash(password, 12);
+      stmts.registerClient.run(hashedPassword, client.id);
+      return res.json({ message: 'Account activated. You can now login.' });
+    }
+
+    return res.status(400).json({ message: 'Account status does not allow registration.' });
+  } catch (error) {
+    console.error('Client registration error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Client Login
+app.post('/api/client-auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    const client = stmts.findClientByEmailForAuth.get(email.toLowerCase());
+
+    if (!client) {
+      return res.status(401).json({ message: 'Invalid credentials or account not yet approved' });
+    }
+
+    if (!client.password) {
+      return res.status(401).json({ message: 'This account has not been registered yet. Please complete registration first.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, client.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(client, true);
+
+    setAuthCookies(res, accessToken, refreshToken, true);
+
+    logActivity(null, 'CLIENT_LOGIN', { clientId: client.id, email: client.email }, req);
+
+    res.json({
+      message: 'Login successful',
+      user: {
+        id: client.id,
+        name: client.name,
+        email: client.email,
+        status: client.status,
+        profileComplete: !!client.profileComplete
+      }
+    });
+  } catch (error) {
+    console.error('Client login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Client Logout
+app.post('/api/client-auth/logout', verifyClientToken, (req, res) => {
+  try {
+    res.clearCookie('client_accessToken');
+    res.clearCookie('client_refreshToken');
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Client logout error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Client Refresh Token
+app.post('/api/client-auth/refresh', (req, res) => {
+  try {
+    const refreshToken = req.cookies.client_refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
+
+    const decoded = jwt.verify(refreshToken, process.env.CLIENT_JWT_REFRESH_SECRET);
+    const client = stmts.findClientById.get(decoded.id);
+
+    if (!client || !client.password) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(client, true);
+
+    setAuthCookies(res, accessToken, newRefreshToken, true);
+
+    res.json({ message: 'Token refreshed' });
+  } catch (error) {
+    console.error('Client refresh token error:', error);
+    res.status(401).json({ message: 'Invalid refresh token' });
+  }
+});
+
+// Client Me
+app.get('/api/client-auth/me', verifyClientToken, (req, res) => {
+  try {
+    const client = stmts.findClientById.get(req.client.id);
+    if (!client) return res.status(404).json({ message: 'Client not found' });
+    res.json(clientRowToDTO(client));
+  } catch (error) {
+    console.error('Get client error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ============ NEW: CLIENT PROFILE ROUTES ============
+
+// Complete profile (first time - from Registered to Active)
+app.put('/api/client-auth/profile/complete', verifyClientToken, (req, res) => {
+  try {
+    const client = stmts.findClientById.get(req.client.id);
+    if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    if (client.profileComplete) {
+      return res.status(400).json({ success: false, message: 'Profile already completed' });
+    }
+
+    const {
+      age, panCardNumber, aadharNumber, educationLevel, professionalQualification,
+      clientType, debtLoanAmount, investmentAmount, incomeTypes, annualIncome,
+      totalNetWorth, assets
+    } = req.body;
+
+    // Validate required fields for profile completion
+    if (!age || !panCardNumber || !aadharNumber || !educationLevel || !clientType ||
+        !investmentAmount || !annualIncome || !totalNetWorth) {
+      return res.status(400).json({
+        success: false,
+        message: 'All financial fields are required to complete your profile.'
+      });
+    }
+
+    if (!['Retail', 'Corporate'].includes(clientType)) {
+      return res.status(400).json({ success: false, message: 'Invalid client type.' });
+    }
+
+    // Validate PAN format
+    if (!panCardNumber.match(/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/)) {
+      return res.status(400).json({ success: false, message: 'Invalid PAN card format (e.g., ABCDE1234F)' });
+    }
+
+    // Validate Aadhar format
+    if (!aadharNumber.match(/^[0-9]{12}$/)) {
+      return res.status(400).json({ success: false, message: 'Aadhar must be 12 digits' });
+    }
+
+    // Check for duplicate PAN/Aadhar (exclude self)
+    const panHash = hashForLookup(panCardNumber);
+    const aadharHash = hashForLookup(aadharNumber);
+    const existing = db.prepare(`
+      SELECT * FROM clients WHERE (panCardHash = ? OR aadharHash = ?) AND id != ?
+    `).get(panHash, aadharHash, client.id);
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'A client with this PAN or Aadhar already exists.'
+      });
+    }
+
+    const a = assets || {};
+    const id = client.id;
+
+    stmts.completeClientProfile.run({
+      id,
       age: Number(age),
       panCardNumber: encrypt(panCardNumber),
       aadharNumber: encrypt(aadharNumber),
@@ -764,27 +1152,87 @@ app.post('/api/clients/submit', (req, res) => {
       assetEquity: Number(a.equity) || 0,
       assetAlternatives: Number(a.alternatives) || 0,
       assetFixedIncomeAndCash: Number(a.fixedIncomeAndCash) || 0,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'] || null,
     });
 
-    const saved = stmts.findClientById.get(id);
+    const updated = stmts.findClientById.get(id);
+    logActivity(null, 'CLIENT_PROFILE_COMPLETED', { clientId: updated.id, email: updated.email }, req);
 
-    res.status(201).json({
+    res.json({
       success: true,
-      message: 'Form submitted successfully! We will contact you within 24-48 hours.',
-      data: { id, submittedAt: saved.submittedAt }
+      message: 'Profile completed successfully!',
+      data: clientRowToDTO(updated)
     });
   } catch (error) {
-    console.error('Submission error:', error);
-    res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
+    console.error('Complete profile error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
+// Update profile (editable fields)
+app.put('/api/client-auth/profile', verifyClientToken, (req, res) => {
+  try {
+    const client = stmts.findClientById.get(req.client.id);
+    if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    const {
+      name, phone, preferredContactTime, age, educationLevel,
+      professionalQualification, clientType, debtLoanAmount,
+      investmentAmount, incomeTypes, annualIncome, totalNetWorth, assets
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Name is required' });
+    }
+    if (!phone || !phone.match(/^[0-9]{10}$/)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid 10-digit phone number' });
+    }
+    if (age && (age < 18 || age > 120)) {
+      return res.status(400).json({ success: false, message: 'Age must be between 18 and 120' });
+    }
+
+    const a = assets || {};
+
+    stmts.updateClientProfile.run({
+      id: client.id,
+      name: name.trim(),
+      phone,
+      preferredContactTime: preferredContactTime || null,
+      age: age || null,
+      educationLevel: educationLevel || null,
+      professionalQualification: professionalQualification || null,
+      clientType: clientType || null,
+      debtLoanAmount: Number(debtLoanAmount) || 0,
+      investmentAmount: investmentAmount !== undefined ? Number(investmentAmount) : null,
+      incomeTypes: JSON.stringify(incomeTypes || []),
+      annualIncome: annualIncome !== undefined ? Number(annualIncome) : null,
+      totalNetWorth: totalNetWorth !== undefined ? Number(totalNetWorth) : null,
+      assetRealEstate: Number(a.realEstate) || 0,
+      assetEquity: Number(a.equity) || 0,
+      assetAlternatives: Number(a.alternatives) || 0,
+      assetFixedIncomeAndCash: Number(a.fixedIncomeAndCash) || 0,
+    });
+
+    const updated = stmts.findClientById.get(client.id);
+    logActivity(null, 'CLIENT_PROFILE_UPDATED', { clientId: updated.id, email: updated.email }, req);
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: clientRowToDTO(updated)
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ============ UPDATED ADMIN CLIENT ROUTES ============
+
+// Get all clients (with new statuses)
 app.get('/api/clients/all', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const rows = stmts.findAllClients.all();
-    const data = rows.map(clientRowToDTO);
+    const data = rows.map(clientRowToAdminDTO);
     logActivity(req.user.id, 'VIEW_ALL_CLIENTS', { count: data.length }, req);
     res.json({ success: true, data });
   } catch (error) {
@@ -793,6 +1241,7 @@ app.get('/api/clients/all', verifyToken, verifyAdmin, sessionTimeout, (req, res)
   }
 });
 
+// Get client detail (full view - only admin can see decrypted data)
 app.get('/api/clients/:id', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const row = stmts.findClientById.get(req.params.id);
@@ -807,29 +1256,38 @@ app.get('/api/clients/:id', verifyToken, verifyAdmin, sessionTimeout, (req, res)
   }
 });
 
+// Update client status (admin)
 app.put('/api/clients/:id/status', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const { status, notes } = req.body;
-    if (!['Pending', 'Contacted', 'Approved', 'Rejected'].includes(status)) {
+    if (!['Pending', 'Scheduled', 'Registered', 'Active'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 
     const existing = stmts.findClientById.get(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
 
-    const contactedAt = status === 'Contacted' ? new Date().toISOString() : null;
-    stmts.updateClientStatus.run(status, notes || null, contactedAt, req.params.id);
+    stmts.updateClientStatus.run(status, notes || null, req.params.id);
 
     const updated = stmts.findClientById.get(req.params.id);
-    logActivity(req.user.id, 'UPDATE_CLIENT_STATUS', { clientId: updated.id, clientName: updated.name, newStatus: status }, req);
+    logActivity(req.user.id, 'UPDATE_CLIENT_STATUS', {
+      clientId: updated.id,
+      clientName: updated.name,
+      newStatus: status
+    }, req);
 
-    res.json({ success: true, message: `Status updated to ${status}`, data: clientRowToDTO(updated) });
+    res.json({
+      success: true,
+      message: `Status updated to ${status}`,
+      data: clientRowToAdminDTO(updated)
+    });
   } catch (error) {
     console.error('Error updating status:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
+// Delete client
 app.delete('/api/clients/:id', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const existing = stmts.findClientById.get(req.params.id);
@@ -845,25 +1303,30 @@ app.delete('/api/clients/:id', verifyToken, verifyAdmin, sessionTimeout, (req, r
   }
 });
 
+// Stats (updated with new statuses)
 app.get('/api/clients/stats/summary', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const total = stmts.countAllClients.get().c;
     const pending = stmts.countClientsByStatus.get('Pending').c;
-    const contacted = stmts.countClientsByStatus.get('Contacted').c;
-    const approved = stmts.countClientsByStatus.get('Approved').c;
-    const rejected = stmts.countClientsByStatus.get('Rejected').c;
+    const scheduled = stmts.countClientsByStatus.get('Scheduled').c;
+    const registered = stmts.countClientsByStatus.get('Registered').c;
+    const active = stmts.countClientsByStatus.get('Active').c;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todaySubmissions = stmts.countClientsSince.get(today.toISOString()).c;
 
-    res.json({ success: true, data: { total, pending, contacted, approved, rejected, todaySubmissions } });
+    res.json({
+      success: true,
+      data: { total, pending, scheduled, registered, active, todaySubmissions }
+    });
   } catch (error) {
     console.error('Error getting stats:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
+// Admin logs (unchanged)
 app.get('/api/admin/logs', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;

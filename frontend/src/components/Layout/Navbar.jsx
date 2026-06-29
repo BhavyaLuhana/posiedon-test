@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useClientAuth } from '../../context/ClientAuthContext'
 
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false)
   const [openDropdown, setOpenDropdown] = useState(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const location = useLocation()
+
+  // Use ClientAuthContext for client auth state
+  const { isAuthenticated: isClientAuthenticated, client, clientLogout } = useClientAuth() || {};
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -44,7 +48,16 @@ const Navbar = () => {
     setOpenDropdown(openDropdown === dropdownName ? null : dropdownName)
   }
 
-  const navLinks = [
+  const handleClientLogout = async () => {
+    if (clientLogout) {
+      await clientLogout();
+    }
+    // Close mobile menu
+    setIsMobileMenuOpen(false);
+  };
+
+  // Base nav links (without auth-dependent ones)
+  const baseNavLinks = [
     { name: 'Home', path: '/' },
     { name: 'About Us', path: '/about' },
     { 
@@ -66,11 +79,17 @@ const Navbar = () => {
       ]
     },
     { name: 'Testimonial', path: '/testimonial' },
-    { 
-      name: isAdmin ? 'Dashboard' : 'Admin Login', 
-      path: isAdmin ? '/dashboard' : '/admin-login' 
-    }
   ]
+
+  // Build navLinks based on auth state
+  let navLinks = [...baseNavLinks]
+
+  // Admin link
+  if (isAdmin) {
+    navLinks.push({ name: 'Dashboard', path: '/dashboard' })
+  } else {
+    navLinks.push({ name: 'Admin Login', path: '/admin-login' })
+  }
 
   return (
     <nav className={`fixed top-0 w-full z-[1000] transition-all duration-300 ${
@@ -80,7 +99,6 @@ const Navbar = () => {
         <Link to="/" className="flex items-center gap-2 font-extrabold text-base md:text-[1.2rem] text-primary-light cursor-pointer">
           <img src="/Logo.png" alt="Logo" className="h-[25px] md:h-[30px]" />
           <span className="hidden xs:inline">Poseidon Wealth Planners</span>
-
         </Link>
         
         {/* Desktop Navigation */}
@@ -139,6 +157,41 @@ const Navbar = () => {
             </div>
           ))}
           
+          {/* ============ CLIENT AUTH BUTTONS (DESKTOP) ============ */}
+          {isClientAuthenticated ? (
+            // Client is logged in
+            <>
+              <Link
+                to="/client-dashboard"
+                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
+              >
+                Dashboard
+              </Link>
+              <button
+                onClick={handleClientLogout}
+                className="text-white text-[0.85rem] font-medium hover:text-red-400 transition-colors duration-300"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            // Client is NOT logged in - Show Login/Register
+            <>
+              <Link
+                to="/client-login"
+                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
+              >
+                Client Login
+              </Link>
+              <Link
+                to="/client-register"
+                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
+              >
+                Register
+              </Link>
+            </>
+          )}
+
           {/* TRY NOW Button - Always Visible */}
           <Link
             to="/try-now"
@@ -218,6 +271,44 @@ const Navbar = () => {
                 )}
               </div>
             ))}
+            
+            {/* ============ CLIENT AUTH BUTTONS (MOBILE) ============ */}
+            {isClientAuthenticated ? (
+              // Client is logged in
+              <>
+                <Link
+                  to="/client-dashboard"
+                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Dashboard
+                </Link>
+                <button
+                  onClick={handleClientLogout}
+                  className="block text-white text-[1rem] font-medium py-2 hover:text-red-400 text-left cursor-pointer"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              // Client is NOT logged in
+              <>
+                <Link
+                  to="/client-login"
+                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Client Login
+                </Link>
+                <Link
+                  to="/client-register"
+                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Register
+                </Link>
+              </>
+            )}
             
             {/* TRY NOW Button - Mobile */}
             <Link
