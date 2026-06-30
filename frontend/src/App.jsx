@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ClientAuthProvider } from './context/ClientAuthContext'
+
 import Navbar from './components/Layout/Navbar'
 import Footer from './components/Layout/Footer'
 import HomePage from './pages/HomePage'
