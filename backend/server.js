@@ -1393,7 +1393,7 @@ function createDefaultAdmin() {
 
     bcrypt.hash(adminPassword, 12).then((hashedPassword) => {
       stmts.insertUser.run(randomUUID(), 'Super Admin', adminEmail.toLowerCase(), hashedPassword, 'admin');
-      console.log('✅ Default admin created from .env credentials');
+      console.log('Default admin created from .env credentials');
     });
   } catch (error) {
     console.error('Error creating default admin:', error);
