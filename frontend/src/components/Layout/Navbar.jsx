@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import { useClientAuth } from '../../context/ClientAuthContext'
 
 const Navbar = () => {
@@ -7,19 +8,27 @@ const Navbar = () => {
   const [openDropdown, setOpenDropdown] = useState(null)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
 
-  // Use ClientAuthContext for client auth state
-  const { isAuthenticated: isClientAuthenticated, client, clientLogout } = useClientAuth() || {};
+  // Get auth contexts
+  const { isAuthenticated: isAdminAuth, user: adminUser, logout: adminLogout } = useAuth()
+  const { isAuthenticated: isClientAuth, client, clientLogout } = useClientAuth()
 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  // Determine login state
+  const isLoggedIn = isAdminAuth || isClientAuth
+  
+  // Get user info based on who's logged in
+  const getUserInfo = () => {
+    if (isAdminAuth && adminUser) {
+      return { name: adminUser.name || 'Admin', role: 'Admin', type: 'admin' }
+    }
+    if (isClientAuth && client) {
+      return { name: client.name || 'Client', role: 'Client', type: 'client' }
+    }
+    return null
+  }
 
-  useEffect(() => {
-    const user = localStorage.getItem('user');
-    const adminToken = localStorage.getItem('adminToken');
-    setIsLoggedIn(!!user);
-    setIsAdmin(!!adminToken);
-  }, []);
+  const userInfo = getUserInfo()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -48,13 +57,21 @@ const Navbar = () => {
     setOpenDropdown(openDropdown === dropdownName ? null : dropdownName)
   }
 
-  const handleClientLogout = async () => {
-    if (clientLogout) {
-      await clientLogout();
+  const handleLogout = async () => {
+    if (isAdminAuth) {
+      await adminLogout()
+    } else if (isClientAuth) {
+      await clientLogout()
     }
-    // Close mobile menu
-    setIsMobileMenuOpen(false);
-  };
+    setIsMobileMenuOpen(false)
+    navigate('/')
+  }
+
+  const getDashboardLink = () => {
+    if (isAdminAuth) return '/dashboard'
+    if (isClientAuth) return '/client-dashboard'
+    return '/'
+  }
 
   // Base nav links (without auth-dependent ones)
   const baseNavLinks = [
@@ -84,11 +101,11 @@ const Navbar = () => {
   // Build navLinks based on auth state
   let navLinks = [...baseNavLinks]
 
-  // Admin link
-  if (isAdmin) {
-    navLinks.push({ name: 'Dashboard', path: '/dashboard' })
+  // Add Dashboard or Login based on auth
+  if (isLoggedIn) {
+    navLinks.push({ name: 'Dashboard', path: getDashboardLink() })
   } else {
-    navLinks.push({ name: 'Admin Login', path: '/admin-login' })
+    navLinks.push({ name: 'Login', path: '/login' })
   }
 
   return (
@@ -157,48 +174,27 @@ const Navbar = () => {
             </div>
           ))}
           
-          {/* ============ CLIENT AUTH BUTTONS (DESKTOP) ============ */}
-          {isClientAuthenticated ? (
-            // Client is logged in
-            <>
-              <Link
-                to="/client-dashboard"
-                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
-              >
-                Dashboard
-              </Link>
+          {/* User Info & Logout (Desktop) */}
+          {isLoggedIn ? (
+            <div className="flex items-center gap-4 ml-2">
+              <span className="text-white/80 text-sm">
+                {userInfo?.name} ({userInfo?.role})
+              </span>
               <button
-                onClick={handleClientLogout}
+                onClick={handleLogout}
                 className="text-white text-[0.85rem] font-medium hover:text-red-400 transition-colors duration-300"
               >
                 Logout
               </button>
-            </>
+            </div>
           ) : (
-            // Client is NOT logged in - Show Login/Register
-            <>
-              <Link
-                to="/client-login"
-                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
-              >
-                Client Login
-              </Link>
-              <Link
-                to="/client-register"
-                className="text-white text-[0.85rem] font-medium hover:text-primary-light transition-colors duration-300"
-              >
-                Register
-              </Link>
-            </>
+            <Link
+              to="/try-now"
+              className="bg-primary-light text-primary-dark font-bold px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-primary-light/30 ml-2 whitespace-nowrap"
+            >
+              Contact Us
+            </Link>
           )}
-
-          {/* TRY NOW Button - Always Visible */}
-          <Link
-            to="/try-now"
-            className="bg-primary-light text-primary-dark font-bold px-6 py-2 rounded-full hover:shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-primary-light/30 ml-2 whitespace-nowrap"
-          >
-            Contact Us
-          </Link>
         </div>
 
         {/* Mobile Menu Button */}
@@ -272,52 +268,28 @@ const Navbar = () => {
               </div>
             ))}
             
-            {/* ============ CLIENT AUTH BUTTONS (MOBILE) ============ */}
-            {isClientAuthenticated ? (
-              // Client is logged in
+            {/* User Info & Logout (Mobile) */}
+            {isLoggedIn ? (
               <>
-                <Link
-                  to="/client-dashboard"
-                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  Dashboard
-                </Link>
+                <div className="text-white/80 text-sm py-2 border-t border-white/10 mt-2 pt-3">
+                  {userInfo?.name} ({userInfo?.role})
+                </div>
                 <button
-                  onClick={handleClientLogout}
-                  className="block text-white text-[1rem] font-medium py-2 hover:text-red-400 text-left cursor-pointer"
+                  onClick={handleLogout}
+                  className="text-white text-[1rem] font-medium py-2 hover:text-red-400 text-left cursor-pointer"
                 >
                   Logout
                 </button>
               </>
             ) : (
-              // Client is NOT logged in
-              <>
-                <Link
-                  to="/client-login"
-                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  Client Login
-                </Link>
-                <Link
-                  to="/client-register"
-                  className="block text-white text-[1rem] font-medium py-2 hover:text-primary-light cursor-pointer"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  Register
-                </Link>
-              </>
+              <Link
+                to="/try-now"
+                className="bg-primary-light text-primary-dark font-bold px-6 py-3 rounded-full hover:shadow-lg transition-all duration-300 text-center mt-2"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                🚀 Try Now
+              </Link>
             )}
-            
-            {/* TRY NOW Button - Mobile */}
-            <Link
-              to="/try-now"
-              className="bg-primary-light text-primary-dark font-bold px-6 py-3 rounded-full hover:shadow-lg transition-all duration-300 text-center mt-2"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              🚀 Try Now
-            </Link>
           </div>
         </div>
       )}

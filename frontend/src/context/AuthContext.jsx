@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import axios from 'axios';
-import { getCurrentUser, logout as logoutApi } from '../services/api';
+import { getCurrentUser, logout as logoutApi, login as loginApi } from '../services/api';
+import { toast } from 'react-hot-toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -50,6 +51,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // For unified login - accepts user data from API response
+  const login = (userData) => {
+    setUser(userData);
+    setIsAuthenticated(true);
+    toast.success('Admin login successful!');
+  };
+
+  const adminLogin = async (email, password) => {
+    try {
+      const data = await loginApi({ email, password });
+      if (data && data.user) {
+        setUser(data.user);
+        setIsAuthenticated(true);
+        toast.success('Admin login successful!');
+        return data;
+      }
+      throw new Error('Invalid response from server');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Login failed');
+      throw error;
+    }
+  };
+
   const logout = async () => {
     try {
       await logoutApi();
@@ -58,6 +82,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       setIsAuthenticated(false);
+      toast.success('Logged out successfully');
     }
   };
 
@@ -67,6 +92,8 @@ export const AuthProvider = ({ children }) => {
     loading,
     isAuthenticated,
     setIsAuthenticated,
+    login, // For unified login
+    adminLogin,
     logout,
     checkAuth
   };

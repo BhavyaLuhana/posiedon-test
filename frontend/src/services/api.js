@@ -92,6 +92,7 @@ export const clientRegister = async (email, password) => {
 };
 
 export const clientLogin = async (email, password) => {
+  // Make sure it accepts email and password as separate parameters
   const response = await api.post('/client-auth/login', { email, password });
   return response.data;
 };
@@ -115,6 +116,14 @@ export const completeClientProfile = async (profileData) => {
 // Update profile (editable fields)
 export const updateClientProfile = async (profileData) => {
   const response = await api.put('/client-auth/profile', profileData);
+  return response.data;
+};
+
+// ============ CSV EXPORT ============
+export const exportClientsCSV = async () => {
+  const response = await api.get('/clients/export/csv', {
+    responseType: 'blob', // Important: tells axios to treat response as binary data
+  });
   return response.data;
 };
 

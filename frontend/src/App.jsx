@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ClientAuthProvider } from './context/ClientAuthContext'
 
@@ -14,7 +14,7 @@ import CorporatePlans from './pages/CorporatePlans'
 import CorporateStructure from './pages/CorporateStructure'
 import TestimonialPage from './pages/TestimonialPage'
 import ContactPage from './pages/ContactPage'
-import LoginPage from './pages/LoginPage'
+import UnifiedLogin from './pages/UnifiedLogin' // NEW
 import ClientOnboarding from './pages/ClientOnboarding'
 import AdminDashboard from './pages/AdminDashboard'
 import ClientDetail from './pages/ClientDetail'
@@ -24,7 +24,7 @@ import AdminSetup from './pages/Adminsetup'
 import ForgotPassword from './pages/Forgotpassword'
 import ResetPassword from './pages/Resetpassword'
 
-// NEW: Client Pages
+// Client Pages
 import ClientLogin from './pages/ClientLogin'
 import ClientRegister from './pages/ClientRegister'
 import ClientDashboard from './pages/ClientDashboard'
@@ -77,14 +77,22 @@ function App() {
                 <Route path="/corporate/structure" element={<CorporateStructure />} />
                 <Route path="/testimonial" element={<TestimonialPage />} />
                 <Route path="/contact" element={<ContactPage />} />
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="/onboard" element={<ClientOnboarding />} />
+                
+                {/* ============ AUTH ROUTES ============ */}
+                {/* Unified Login - NEW */}
+                <Route path="/login" element={<UnifiedLogin />} />
+                
+                {/* Legacy Redirects */}
+                <Route path="/admin-login" element={<Navigate to="/login" replace />} />
+                <Route path="/client-login" element={<Navigate to="/login" replace />} />
+                
+                <Route path="/client-register" element={<ClientRegister />} />
                 <Route path="/try-now" element={<TryNowPage />} />
-
-                {/* ============ ADMIN AUTH ROUTES ============ */}
-                <Route path="/admin-login" element={<AdminLogin />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/onboard" element={<ClientOnboarding />} />
+
+                {/* ============ ADMIN PROTECTED ROUTES ============ */}
                 <Route
                   path="/admin-setup"
                   element={
@@ -93,8 +101,6 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-
-                {/* ============ ADMIN PROTECTED ROUTES ============ */}
                 <Route
                   path="/dashboard"
                   element={
@@ -111,10 +117,6 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-
-                {/* ============ CLIENT AUTH ROUTES ============ */}
-                <Route path="/client-login" element={<ClientLogin />} />
-                <Route path="/client-register" element={<ClientRegister />} />
 
                 {/* ============ CLIENT PROTECTED ROUTES ============ */}
                 <Route

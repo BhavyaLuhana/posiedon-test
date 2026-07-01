@@ -985,7 +985,7 @@ app.post('/api/client-auth/register', async (req, res) => {
 app.post('/api/client-auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
+    
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
@@ -993,16 +993,16 @@ app.post('/api/client-auth/login', async (req, res) => {
     const client = stmts.findClientByEmailForAuth.get(email.toLowerCase());
 
     if (!client) {
-      return res.status(401).json({ message: 'Invalid credentials or account not yet approved' });
+      return res.status(400).json({ message: 'Invalid credentials or account not yet approved' });
     }
 
     if (!client.password) {
-      return res.status(401).json({ message: 'This account has not been registered yet. Please complete registration first.' });
+      return res.status(400).json({ message: 'This account has not been registered yet. Please complete registration first.' });
     }
 
     const isMatch = await bcrypt.compare(password, client.password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ message: 'Invalid credentials' });
     }
 
     const { accessToken, refreshToken } = generateTokens(client, true);
@@ -1022,7 +1022,6 @@ app.post('/api/client-auth/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Client login error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -1326,6 +1325,113 @@ app.get('/api/clients/stats/summary', verifyToken, verifyAdmin, sessionTimeout, 
   }
 });
 
+// ============ CSV EXPORT ============
+app.get('/api/clients/export/csv', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
+  try {
+    const rows = stmts.findAllClients.all();
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No clients to export' });
+    }
+
+    // Define CSV headers
+    const headers = [
+      'Name', 'Email', 'Phone', 'Age', 'PAN Card', 'Aadhar Number', 
+      'Education Level', 'Professional Qualification', 'Client Type',
+      'Debt/Loan Amount', 'Investment Amount', 'Income Types', 'Annual Income', 
+      'Total Net Worth', 'Real Estate Assets', 'Equity Assets', 
+      'Alternative Assets', 'Fixed Income & Cash', 'Status', 
+      'Profile Complete', 'Submitted At', 'Registered At'
+    ];
+
+    // Build CSV rows
+    const csvRows = [];
+    csvRows.push(headers.join(','));
+
+    rows.forEach(row => {
+      // Decrypt sensitive data for export
+      const pan = row.panCardNumber ? decrypt(row.panCardNumber) : '';
+      const aadhar = row.aadharNumber ? decrypt(row.aadharNumber) : '';
+      const incomeTypes = row.incomeTypes ? JSON.parse(row.incomeTypes).join('; ') : '';
+      
+      // Escape fields that might contain commas
+      const escape = (value) => {
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const csvRow = [
+        escape(row.name),
+        escape(row.email),
+        escape(row.phone),
+        escape(row.age),
+        escape(pan),
+        escape(aadhar),
+        escape(row.educationLevel),
+        escape(row.professionalQualification),
+        escape(row.clientType),
+        escape(row.debtLoanAmount),
+        escape(row.investmentAmount),
+        escape(incomeTypes),
+        escape(row.annualIncome),
+        escape(row.totalNetWorth),
+        escape(row.assetRealEstate),
+        escape(row.assetEquity),
+        escape(row.assetAlternatives),
+        escape(row.assetFixedIncomeAndCash),
+        escape(row.status),
+        escape(row.profileComplete ? 'Yes' : 'No'),
+        escape(row.submittedAt),
+        escape(row.registeredAt || '')
+      ];
+      csvRows.push(csvRow.join(','));
+    });
+
+    // Create CSV content with BOM for Excel compatibility
+    const csvContent = '\uFEFF' + csvRows.join('\n');
+    
+    // Log the export
+    logActivity(req.user.id, 'EXPORT_CSV', { 
+      count: rows.length,
+      exportedBy: req.user.email 
+    }, req);
+
+    // Set response headers for CSV download
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=clients_${new Date().toISOString().split('T')[0]}.csv`);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Pragma', 'no-cache');
+    
+    res.send(csvContent);
+    
+  } catch (error) {
+    console.error('CSV export error:', error);
+    res.status(500).json({ success: false, message: 'Error generating CSV export' });
+  }
+});
+
+// ============ START SERVER ============
+const PORT = process.env.PORT || 8000;
+const server = app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
+  createDefaultAdmin();
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    db.close();
+    console.log('SQLite connection closed');
+    process.exit(0);
+  });
+});
+
+
 // Admin logs (unchanged)
 app.get('/api/admin/logs', verifyToken, verifyAdmin, sessionTimeout, (req, res) => {
   try {
@@ -1358,23 +1464,6 @@ app.use((err, req, res, next) => {
   if (err.name === 'TokenExpiredError') return res.status(401).json({ message: 'Token expired' });
 
   res.status(err.status || 500).json({ success: false, message: err.message || 'Internal server error' });
-});
-
-// ============ START SERVER ============
-const PORT = process.env.PORT || 8000;
-const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
-  createDefaultAdmin();
-});
-
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    db.close();
-    console.log('SQLite connection closed');
-    process.exit(0);
-  });
 });
 
 // ============ CREATE DEFAULT ADMIN ============
